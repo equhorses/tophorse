@@ -1,0 +1,28 @@
+{
+  "name": "tophorses-backend",
+  "version": "0.1.0",
+  "description": "TopHorses · API de análisis de datos del caballo deportivo",
+  "main": "src/server.js",
+  "private": true,
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.1",
+    "express-rate-limit": "^7.4.1",
+    "ffmpeg-static": "^5.3.0",
+    "helmet": "^8.0.0",
+    "jsonwebtoken": "^9.0.2",
+    "multer": "^1.4.5-lts.1",
+    "pdf-to-png-converter": "^4.2.1",
+    "pg": "^8.13.1",
+    "stripe": "^17.3.1"
+  }
+}
