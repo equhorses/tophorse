@@ -1,9 +1,11 @@
 // Al arrancar: aplica migraciones y crea la cuenta de dirección.
 const bcrypt = require('bcryptjs');
 const db = require('./db');
+const { seedSources } = require('./sources');
 
 async function bootstrap() {
   await db.migrate();
+  await seedSources(db);
 
   const { ADMIN_EMAIL, ADMIN_PASSWORD } = process.env;
   if (ADMIN_EMAIL && ADMIN_PASSWORD) {

@@ -6,6 +6,7 @@ import { LinkButton, Toast } from '../components/ui.jsx'
 import { DOC_ROLES, HORSE_STATUS, REQ_STATUS, ROLE_LABELS, SEXES, VIDEO_KINDS, fmtDate } from '../data/content.js'
 import { breedName, disciplineName, useCatalog } from '../data/catalog.js'
 import { HorseForm, ResultsCard, resultFacts } from './Panel.jsx'
+import { AnalysesList, ImportAdmin, SalesAdmin, SourcesAdmin } from './AdminData.jsx'
 
 const eurs = (n) => `${Number(n || 0).toLocaleString('es-ES', { minimumFractionDigits: 0, maximumFractionDigits: 2 })} €`
 
@@ -34,8 +35,8 @@ export default function Admin() {
   if (!user) return <Navigate to="/acceder?next=/admin" replace />
   if (!isStaff) return <Navigate to="/panel" replace />
   const openHorse = (id) => { setTab('caballos'); setHorseId(id) }
-  const tabs = [['inicio', 'Inicio'], ['solicitudes', 'Solicitudes'], ['caballos', 'Caballos'], ['resultados', 'Resultados'],
-    ...(isAdmin ? [['usuarios', 'Usuarios'], ['pagos', 'Pagos'], ['auditoria', 'Auditoría']] : [])]
+  const tabs = [['inicio', 'Inicio'], ['solicitudes', 'Solicitudes'], ['caballos', 'Caballos'], ['resultados', 'Resultados'], ['subastas', 'Subastas'], ['fuentes', 'Fuentes'],
+    ...(isAdmin ? [['importar', 'Importar'], ['usuarios', 'Usuarios'], ['pagos', 'Pagos'], ['auditoria', 'Auditoría']] : [])]
   return (
     <div className="app-shell">
       <div className="app-top">
@@ -54,6 +55,9 @@ export default function Admin() {
           ? <HorseAdmin id={horseId} cat={cat} isAdmin={isAdmin} notify={setToast} onBack={() => setHorseId(null)} />
           : <HorsesAdmin cat={cat} isAdmin={isAdmin} notify={setToast} open={setHorseId} />)}
         {tab === 'resultados' && <ResultsAdmin cat={cat} isAdmin={isAdmin} notify={setToast} openHorse={openHorse} />}
+        {tab === 'subastas' && <SalesAdmin cat={cat} isAdmin={isAdmin} notify={setToast} openHorse={openHorse} />}
+        {tab === 'fuentes' && <SourcesAdmin cat={cat} isAdmin={isAdmin} notify={setToast} />}
+        {tab === 'importar' && <ImportAdmin notify={setToast} />}
         {tab === 'usuarios' && <UsersAdmin notify={setToast} me={user.id} />}
         {tab === 'pagos' && <PaymentsAdmin notify={setToast} />}
         {tab === 'auditoria' && <AuditAdmin />}
@@ -87,7 +91,9 @@ function Dashboard({ cat, go }) {
         <div className="dash-grid mt8">
           {tile(s.horses, 'Caballos', `${s.horsesMonth} en los últimos 30 días`, 'caballos')}
           {tile(s.results, 'Resultados', null, 'resultados')}
-          {tile(s.videos, 'Vídeos', null)}
+          {tile(s.videos, 'Vídeos de caballos', null)}
+          {tile(s.saleLots, 'Lotes de subasta', `${s.saleVideos} con vídeo · ${s.saleLinked} enlazados`, 'subastas')}
+          {tile(`${s.sourcesActive}/${s.sourcesTotal}`, 'Fuentes activas', 'por contactar o en marcha', 'fuentes')}
           {tile(s.users, 'Usuarios', `${s.usersMonth} en los últimos 30 días`, 'usuarios')}
         </div>
         <div className="table-scroll mt16">
@@ -105,6 +111,7 @@ function Dashboard({ cat, go }) {
           {tile(eurs(s.revenue), 'Cobrado en total', null, 'pagos')}
           {tile(eurs(s.revenueMonth), 'Cobrado este mes', null, 'pagos')}
           {tile(s.docsMonth, 'Documentos leídos este mes', 'cada uno ≈ 0,01–0,02 $')}
+          {tile(s.analysesMonth, 'Vídeos analizados este mes', 'cada uno ≈ 0,10–0,20 $')}
         </div>
       </div>
     </div>
@@ -145,7 +152,7 @@ function RequestsAdmin({ notify, openHorse }) {
 }
 
 // ─── CABALLOS ───
-const EMPTY_HORSE = { name: '', birthDate: '', sex: 'MACHO', discipline: '', breed: '', coat: '', country: 'España', sireName: '', damName: '', damsireName: '', breederName: '', microchip: '', ueln: '', officialRegistry: '', studbook: '', trainerName: '', ownerEmail: '', externalOwner: '', adminNotes: '' }
+const EMPTY_HORSE = { name: '', birthDate: '', sex: 'MACHO', discipline: '', breed: '', coat: '', country: 'España', sireName: '', damName: '', damsireName: '', breederName: '', microchip: '', ueln: '', officialRegistry: '', studbook: '', trainerName: '', feiId: '', ownerEmail: '', externalOwner: '', adminNotes: '' }
 
 function OwnerFields({ f, setF }) {
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value })
@@ -249,10 +256,14 @@ function HorseAdmin({ id, cat, isAdmin, notify, onBack }) {
       </div>
       <ResultsCard h={h} cat={cat} notify={notify} onChange={reload} base="/admin"
         adminActions={isAdmin ? (r) => <div className="row" style={{ gap: 6 }}>{!r.verified && <button className="btn btn-line btn-sm" onClick={() => verify(r)}>Verificar</button>}<button className="btn btn-line btn-sm" onClick={() => remove(r)}>Borrar</button></div> : null} />
-      <div className="card">
-        <h3>Vídeos ({h.videos.length})</h3>
-        {h.videos.length ? h.videos.map((v) => <p key={v.id} className="mt8"><a className="link" href={fileUrl(v.url)} target="_blank" rel="noreferrer">{v.title || VIDEO_KINDS[v.kind]}</a><span className="small muted"> · {VIDEO_KINDS[v.kind]} · {fmtDate(v.recordedOn || v.uploadedAt)}</span></p>) : <p className="muted mt8">Sin vídeos.</p>}
-      </div>
+      <VideosAdmin h={h} notify={notify} onChange={reload} />
+      <AnalysesList data={h.analyses} />
+      {h.saleLots?.length > 0 && (
+        <div className="card">
+          <h3>En subastas ({h.saleLots.length})</h3>
+          {h.saleLots.map((l) => <p key={l.id} className="mt8">{l.saleName} · lote {l.lot || '—'} <span className="small muted">· {l.price != null ? `${Number(l.price).toLocaleString('es-ES')} ${l.currency}` : 'sin precio'} · {l.saleStatus.toLowerCase().replace('_', ' ')}{l.breezeTimeS != null ? ` · breeze ${l.breezeTimeS} s` : ''}</span></p>)}
+        </div>
+      )}
       <div className="card">
         <h3>Documentación ({h.documents.length})</h3>
         <p className="small muted mt8">Comparación entre lo declarado y lo que la IA ha leído en cada documento.</p>
@@ -268,6 +279,28 @@ function HorseAdmin({ id, cat, isAdmin, notify, onBack }) {
           </div>
         ))}
       </div>
+    </div>
+  )
+}
+
+function VideosAdmin({ h, notify, onChange }) {
+  const [busy, setBusy] = useState('')
+  const analyze = async (v) => {
+    setBusy(v.id)
+    try { await api(`/admin/videos/${v.id}/analyze`, { method: 'POST' }); notify('Análisis listo'); onChange() } catch (x) { notify(x.message) }
+    setBusy('')
+  }
+  return (
+    <div className="card">
+      <h3>Vídeos ({h.videos.length})</h3>
+      <p className="small muted mt8">La IA analiza cada vídeo con lo que se sabe de su disciplina: qué medir, con qué protocolo y qué advertencias dar. Si el vídeo no cumple el protocolo, solo describe.</p>
+      {h.videos.length ? h.videos.map((v) => (
+        <p key={v.id} className="mt8">
+          <a className="link" href={fileUrl(v.url)} target="_blank" rel="noreferrer">{v.title || VIDEO_KINDS[v.kind]}</a>
+          <span className="small muted"> · {VIDEO_KINDS[v.kind]} · {fmtDate(v.recordedOn || v.uploadedAt)}</span>{' '}
+          <button className="btn btn-line btn-sm" disabled={busy === v.id} onClick={() => analyze(v)}>{busy === v.id ? 'Analizando… (1–2 min)' : 'Analizar con IA'}</button>
+        </p>
+      )) : <p className="muted mt8">Sin vídeos.</p>}
     </div>
   )
 }

@@ -123,8 +123,16 @@ Busca el resultado del caballo "${horseName}" (puede aparecer con prefijos, sufi
 - going: estado de la pista tal como aparece
 - rating: rating o handicap oficial
 - earningsEur: premio obtenido por el caballo, en euros si está en euros (si está en otra moneda, pon el número y dilo en notes)
+- lengthsBeaten: cuerpos de derrota respecto al ganador (0 si ganó)
+- weightKg: peso llevado en kg (convierte libras o stones a kg si hace falta)
+- ratingAuthority: organismo que emite el rating (France Galop, BHA, ERA, Jockey Club Español…)
+- speedIndex: Speed Index (carreras de Quarter Horse)
+- penalties: penalizaciones (reining)
+- eliminationReason: motivo de eliminación o retirada tal como aparece (cojera, metabólico, caída, rehúse…)
+- eventMeanScore: nota media de la prueba si aparece
+- eventClearCount: número de recorridos limpios en la prueba (cuéntalos si la clasificación completa está en el documento)
 - horseFound: true si aparece ese caballo en el documento
-Responde SOLO con JSON: {"horseFound":true,"competition":null,"date":null,"country":null,"category":null,"level":null,"position":null,"fieldSize":null,"status":null,"score":null,"faults":null,"timeS":null,"distanceM":null,"speedKmh":null,"going":null,"rating":null,"earningsEur":null,"notes":"lo que no se lee bien o parece raro"}`;
+Responde SOLO con JSON: {"horseFound":true,"competition":null,"date":null,"country":null,"category":null,"level":null,"position":null,"fieldSize":null,"status":null,"score":null,"faults":null,"timeS":null,"distanceM":null,"speedKmh":null,"going":null,"rating":null,"earningsEur":null,"lengthsBeaten":null,"weightKg":null,"ratingAuthority":null,"speedIndex":null,"penalties":null,"eliminationReason":null,"eventMeanScore":null,"eventClearCount":null,"notes":"lo que no se lee bien o parece raro"}`;
   try {
     const images = await toImages(file, mime);
     const body = await callModel(p, { model: p.model, messages: [{ role: 'user', content: [{ type: 'text', text }, ...images.map((url) => ({ type: 'image_url', image_url: { url } }))] }] });

@@ -32,6 +32,7 @@ app.get('/api/health', (req, res) => res.json({ status: 'OK', service: 'TopHorse
 app.use('/api/auth', require('./routes/auth'));
 app.use('/api', require('./routes/public'));
 app.use('/api/my', require('./routes/my'));
+app.use('/api/admin', require('./routes/data'));
 app.use('/api/admin', require('./routes/admin'));
 
 app.use((req, res) => res.status(404).json({ error: 'Ruta no encontrada' }));

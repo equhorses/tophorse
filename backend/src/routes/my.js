@@ -15,7 +15,7 @@ async function ownHorse(req, res) {
   return h;
 }
 
-const RESULT_COLS = 'id, horse_id, discipline, competition, date, country, category, level, position, field_size, status, score, faults, time_s, distance_m, speed_kmh, going, rating, earnings_eur, verified, ai_warning, document_url, created_at';
+const RESULT_COLS = 'id, horse_id, discipline, competition, date, country, category, level, position, field_size, status, score, faults, time_s, distance_m, speed_kmh, going, rating, earnings_eur, lengths_beaten, weight_kg, rating_authority, speed_index, penalties, elimination_reason, event_mean_score, event_clear_count, verified, ai_warning, document_url, created_at';
 
 async function withRelations(horses) {
   if (!horses.length) return [];
@@ -122,11 +122,7 @@ router.delete('/horses/:id/videos/:videoId', wrap(async (req, res) => {
 }));
 
 // ─── Resultados: el cliente sube el documento; la IA lo lee; la dirección lo verifica ───
-const num = (v) => {
-  if (v === null || v === undefined || v === '') return null;
-  const n = Number(String(v).replace(/\s/g, '').replace(',', '.'));
-  return Number.isFinite(n) ? n : null;
-};
+const { parseNumber: num, parseTime } = require('../lib/csv');
 const RESULT_STATUS = ['CLASIFICADO', 'ELIMINADO', 'RETIRADO', 'NO_SALIO'];
 
 // Normaliza un resultado (escrito a mano, leído por la IA o mezcla de ambos). Exportado para la dirección.
@@ -142,8 +138,10 @@ function normalizeResult(b, ex) {
     country: txt('country'), category: txt('category'), level: txt('level'),
     position: int('position'), field_size: int('fieldSize'),
     status: RESULT_STATUS.includes(status) ? status : 'CLASIFICADO',
-    score: num(pick('score')), faults: num(pick('faults')), time_s: num(pick('timeS')),
+    score: num(pick('score')), faults: num(pick('faults')), time_s: parseTime(pick('timeS')),
     distance_m: int('distanceM'), speed_kmh: num(pick('speedKmh')), going: txt('going'), rating: num(pick('rating')), earnings_eur: num(pick('earningsEur')),
+    lengths_beaten: num(pick('lengthsBeaten')), weight_kg: num(pick('weightKg')), rating_authority: txt('ratingAuthority'), speed_index: num(pick('speedIndex')),
+    penalties: num(pick('penalties')), elimination_reason: txt('eliminationReason'), event_mean_score: num(pick('eventMeanScore')), event_clear_count: int('eventClearCount'),
   };
 }
 

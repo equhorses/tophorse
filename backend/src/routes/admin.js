@@ -20,6 +20,12 @@ router.get('/stats', wrap(async (req, res) => {
     (SELECT COUNT(*)::int FROM results WHERE NOT verified) AS unverified_results,
     (SELECT COUNT(*)::int FROM horse_videos) AS videos,
     (SELECT COUNT(*)::int FROM horse_documents WHERE created_at > date_trunc('month', now())) AS docs_month,
+    (SELECT COUNT(*)::int FROM sale_lots) AS sale_lots,
+    (SELECT COUNT(*)::int FROM sale_lots WHERE video_url IS NOT NULL OR video_file IS NOT NULL) AS sale_videos,
+    (SELECT COUNT(*)::int FROM sale_lots WHERE horse_id IS NOT NULL) AS sale_linked,
+    (SELECT COUNT(*)::int FROM video_analyses WHERE created_at > date_trunc('month', now()) AND error IS NULL) AS analyses_month,
+    (SELECT COUNT(*)::int FROM data_sources WHERE status='ACTIVA') AS sources_active,
+    (SELECT COUNT(*)::int FROM data_sources) AS sources_total,
     (SELECT COUNT(*)::int FROM service_requests WHERE status IN ('PENDIENTE_PAGO','PAGADA','EN_REVISION','REQUIERE_DOCUMENTACION')) AS pending,
     (SELECT COUNT(*)::int FROM users) AS users,
     (SELECT COUNT(*)::int FROM users WHERE created_at > now() - interval '30 days') AS users_month,
@@ -101,15 +107,17 @@ router.get('/horses/:id', wrap(async (req, res) => {
      FROM horses h JOIN users u ON u.id=h.owner_id WHERE h.id::text=$1`, [req.params.id],
   );
   if (!h) return res.status(404).json({ error: 'Caballo no encontrado' });
-  const [photos, videos, results, docs, requests] = await Promise.all([
+  const [photos, videos, results, docs, requests, analyses, saleLots] = await Promise.all([
     db.query('SELECT * FROM horse_photos WHERE horse_id=$1', [h.id]),
     db.query('SELECT * FROM horse_videos WHERE horse_id=$1 ORDER BY uploaded_at DESC', [h.id]),
     db.query(`SELECT ${my.RESULT_COLS}, source FROM results WHERE horse_id=$1 ORDER BY date DESC`, [h.id]),
     db.query('SELECT id, role, doc_type, original_name, mime, extracted, ai_model, ai_error, created_at FROM horse_documents WHERE horse_id=$1 ORDER BY created_at', [h.id]),
     db.query('SELECT id, service, status, created_at FROM service_requests WHERE horse_id=$1 ORDER BY created_at DESC', [h.id]),
+    db.query('SELECT * FROM video_analyses WHERE horse_id=$1 ORDER BY created_at DESC', [h.id]),
+    db.query('SELECT * FROM sale_lots WHERE horse_id=$1 ORDER BY sale_date DESC NULLS LAST', [h.id]),
   ]);
   const documents = docs.map((d) => ({ ...d, checks: DOCS.compare(h, d) }));
-  res.json({ ...h, photos, videos, results, documents, requests });
+  res.json({ ...h, photos, videos, results, documents, requests, analyses, saleLots });
 }));
 
 async function ownerFrom(b, fallbackId) {
@@ -293,13 +301,15 @@ router.get('/payments', requireRole('ADMIN'), wrap(async (req, res) => {
 // ─── Exportar a CSV (se abre en Excel) ───
 const EXPORTS = {
   caballos: `SELECT h.ref AS "Ref", h.name AS "Nombre", h.discipline AS "Disciplina", h.breed AS "Raza", h.sex AS "Sexo", h.birth_date AS "Nacimiento",
-      h.coat AS "Capa", h.country AS "País", h.sire_name AS "Padre", h.dam_name AS "Madre", h.damsire_name AS "Abuelo materno", h.breeder_name AS "Criador",
+      h.coat AS "Capa", h.country AS "País", h.fei_id AS "FEI ID", h.sire_name AS "Padre", h.dam_name AS "Madre", h.damsire_name AS "Abuelo materno", h.breeder_name AS "Criador",
       h.microchip AS "Microchip", h.ueln AS "UELN", h.official_registry AS "Nº libro", h.studbook AS "Libro", h.trainer_name AS "Entrenador", h.status AS "Estado",
       COALESCE(h.external_owner, u.first_name || ' ' || u.last_name) AS "Propietario", u.email AS "Email", h.created_at AS "Alta"
     FROM horses h JOIN users u ON u.id=h.owner_id ORDER BY h.created_at`,
   resultados: `SELECT h.ref AS "Ref", h.name AS "Caballo", r.discipline AS "Disciplina", r.competition AS "Competición", r.date AS "Fecha", r.country AS "País",
       r.category AS "Prueba", r.level AS "Nivel", r.status AS "Estado", r.position AS "Puesto", r.field_size AS "Participantes", r.score AS "Nota", r.faults AS "Faltas",
-      r.time_s AS "Tiempo (s)", r.distance_m AS "Distancia (m)", r.speed_kmh AS "Velocidad (km/h)", r.going AS "Pista", r.rating AS "Rating", r.earnings_eur AS "Premio (€)",
+      r.time_s AS "Tiempo (s)", r.distance_m AS "Distancia (m)", r.speed_kmh AS "Velocidad (km/h)", r.going AS "Pista", r.rating AS "Rating", r.rating_authority AS "Organismo rating", r.lengths_beaten AS "Cuerpos", r.weight_kg AS "Peso (kg)",
+      r.speed_index AS "Speed Index", r.penalties AS "Penalizaciones", r.elimination_reason AS "Motivo eliminación", r.event_mean_score AS "Media prueba",
+      r.event_clear_count AS "Limpios prueba", r.earnings_eur AS "Premio (€)",
       r.source AS "Origen del dato", r.verified AS "Verificado"
     FROM results r JOIN horses h ON h.id=r.horse_id ORDER BY r.date`,
   usuarios: `SELECT email AS "Email", first_name AS "Nombre", last_name AS "Apellidos", company AS "Empresa", role AS "Rol", phone AS "Teléfono", country AS "País", city AS "Ciudad",

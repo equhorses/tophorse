@@ -29,6 +29,7 @@ export function Disciplinas() {
                   </div>
                   <p className="small muted mt16">Niveles</p>
                   <p className="small mt8">{d.levels.join(' · ')}</p>
+                  <Knowledge cat={cat} k={d.key} />
                 </article>
               ))}
             </div>
@@ -36,6 +37,25 @@ export function Disciplinas() {
         </section>
       ))}
     </>
+  )
+}
+
+// Qué mira TopHorses en cada disciplina (lo mismo que usa la IA)
+function Knowledge({ cat, k }) {
+  const kn = cat.knowledge?.disciplines?.[k]
+  if (!kn) return null
+  const f = cat.knowledge.filming[kn.video.filming]
+  return (
+    <details className="mt16">
+      <summary className="link small" style={{ cursor: 'pointer' }}>Qué mira TopHorses</summary>
+      <p className="small t-name mt16">Lo que más pesa</p>
+      <ul className="small" style={{ paddingLeft: 18, margin: '6px 0 0' }}>{kn.predictors.map((x) => <li key={x}>{x}</li>)}</ul>
+      <p className="small t-name mt16">Qué se mide en vídeo</p>
+      <ul className="small" style={{ paddingLeft: 18, margin: '6px 0 0' }}>{kn.video.measures.map((x) => <li key={x}>{x}</li>)}</ul>
+      <p className="small mt8 muted">Cómo grabar: {f.view} · {f.fps} · {f.calibration}.</p>
+      <p className="small t-name mt16">Lo que decimos siempre</p>
+      <ul className="small" style={{ paddingLeft: 18, margin: '6px 0 0' }}>{kn.warnings.map((x) => <li key={x}>{x}</li>)}</ul>
+    </details>
   )
 }
 

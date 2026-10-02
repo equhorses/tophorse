@@ -18,12 +18,13 @@ function validateHorse(b) {
       sire_name: t(b.sireName).toUpperCase() || null, dam_name: t(b.damName).toUpperCase() || null, damsire_name: t(b.damsireName).toUpperCase() || null,
       breeder_name: t(b.breederName) || null, microchip: t(b.microchip) || null, ueln: t(b.ueln) || null,
       official_registry: t(b.officialRegistry) || null, studbook: t(b.studbook) || null, trainer_name: t(b.trainerName) || null,
+      fei_id: t(b.feiId) || null,
     },
   };
 }
 
 // Claves del cuerpo de la petición que validateHorse entiende (para ediciones parciales)
 const HORSE_KEYS = ['name', 'birthDate', 'sex', 'coat', 'country', 'breed', 'discipline', 'sireName', 'damName', 'damsireName', 'breederName',
-  'microchip', 'ueln', 'officialRegistry', 'studbook', 'trainerName'];
+  'microchip', 'ueln', 'officialRegistry', 'studbook', 'trainerName', 'feiId'];
 
 module.exports = { validateHorse, SEXES, HORSE_KEYS };

@@ -73,7 +73,7 @@ function fieldsFromDoc(role, x) {
   return out
 }
 
-const EMPTY_HORSE = { name: '', birthDate: '', sex: 'MACHO', discipline: '', breed: '', coat: '', country: 'España', sireName: '', damName: '', damsireName: '', breederName: '', microchip: '', ueln: '', officialRegistry: '', studbook: '', trainerName: '' }
+const EMPTY_HORSE = { name: '', birthDate: '', sex: 'MACHO', discipline: '', breed: '', coat: '', country: 'España', sireName: '', damName: '', damsireName: '', breederName: '', microchip: '', ueln: '', officialRegistry: '', studbook: '', trainerName: '', feiId: '' }
 
 export function HorseForm({ f, setF, cat, aiKeys = [], onEdit }) {
   const set = (k) => (e) => { setF({ ...f, [k]: e.target.value }); onEdit?.(k) }
@@ -106,6 +106,7 @@ export function HorseForm({ f, setF, cat, aiKeys = [], onEdit }) {
       <div className="field"><label>Entrenador</label><input className="input" value={f.trainerName || ''} onChange={set('trainerName')} /></div>
       <div className="field"><label>Microchip</label><input className={cls('microchip')} value={f.microchip || ''} onChange={set('microchip')} /></div>
       <div className="field"><label>UELN</label><input className={cls('ueln')} value={f.ueln || ''} onChange={set('ueln')} /></div>
+      <div className="field"><label>FEI ID</label><input className="input" value={f.feiId || ''} onChange={set('feiId')} placeholder="Si compite en FEI" /></div>
       <div className="field"><label>Libro genealógico y nº</label>
         <div className="row" style={{ gap: 6 }}>
           <input className={cls('studbook')} style={{ flex: 1 }} value={f.studbook || ''} onChange={set('studbook')} placeholder="Libro" />
@@ -200,7 +201,7 @@ function HorseManager({ h, cat, onBack, onChange, notify, onReport }) {
         </div>
       </div>
       <ResultsCard h={h} cat={cat} notify={notify} onChange={onChange} base="/my" />
-      <VideosCard h={h} notify={notify} onChange={onChange} />
+      <VideosCard h={h} cat={cat} notify={notify} onChange={onChange} />
       <HorseDocs h={h} notify={notify} onChange={onChange} />
       <div className="card">
         <h3>Fotografías (opcional)</h3>
@@ -227,8 +228,10 @@ const fmtTime = (s) => { if (s == null) return null; const m = Math.floor(s / 60
 export function resultFacts(r) {
   return [
     r.distanceM != null && `${r.distanceM} m`, r.timeS != null && fmtTime(r.timeS), r.going, r.score != null && `nota ${r.score}`,
-    r.faults != null && `${r.faults} faltas`, r.speedKmh != null && `${r.speedKmh} km/h`, r.rating != null && `rating ${r.rating}`,
-    r.earningsEur != null && `${Number(r.earningsEur).toLocaleString('es-ES')} €`,
+    r.faults != null && `${r.faults} faltas`, r.speedKmh != null && `${r.speedKmh} km/h`, r.rating != null && `rating ${r.rating}${r.ratingAuthority ? ` (${r.ratingAuthority})` : ''}`,
+    r.lengthsBeaten != null && `a ${r.lengthsBeaten} cuerpos`, r.weightKg != null && `${r.weightKg} kg`, r.speedIndex != null && `SI ${r.speedIndex}`,
+    r.penalties != null && `${r.penalties} pen.`, r.eventMeanScore != null && `media prueba ${r.eventMeanScore}`, r.eventClearCount != null && `${r.eventClearCount} limpios en la prueba`,
+    r.eliminationReason, r.earningsEur != null && `${Number(r.earningsEur).toLocaleString('es-ES')} €`,
   ].filter(Boolean).join(' · ')
 }
 
@@ -312,7 +315,9 @@ export function ResultsCard({ h, cat, notify, onChange, base, adminActions }) {
   )
 }
 
-function VideosCard({ h, notify, onChange }) {
+function VideosCard({ h, cat, notify, onChange }) {
+  const kn = cat?.knowledge?.disciplines?.[h.discipline]
+  const film = kn && cat.knowledge.filming[kn.video.filming]
   const [f, setF] = useState({ kind: 'ENTRENAMIENTO', title: '', recordedOn: '' })
   const [file, setFile] = useState(null)
   const [busy, setBusy] = useState(false)
@@ -329,7 +334,8 @@ function VideosCard({ h, notify, onChange }) {
   return (
     <div className="card">
       <h3>Vídeos ({h.videos.length})</h3>
-      <p className="small muted mt8">Entrenamiento, competición, subasta, a la mano o en libertad. Mejor de lado, con la cámara quieta. MP4, MOV o WEBM.</p>
+      <p className="small muted mt8">Entrenamiento, competición, subasta, a la mano o en libertad. MP4, MOV o WEBM.</p>
+      {film && <p className="notice info small mt8"><strong>Para que el vídeo sirva para medir:</strong> {film.view} · {film.fps} · {film.calibration}. Si no se puede, súbelo igual: se analizará de forma descriptiva.</p>}
       {h.videos.map((v) => (
         <p key={v.id} className="mt8">
           <a className="link" href={fileUrl(v.url)} target="_blank" rel="noreferrer">{v.title || VIDEO_KINDS[v.kind]}</a>
