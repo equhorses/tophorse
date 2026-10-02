@@ -1,0 +1,10 @@
+{
+  "name": "tophorses",
+  "private": true,
+  "description": "TopHorses: arranque del backend cuando Railway despliega desde la raíz del repo",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "postinstall": "npm --prefix backend install --omit=dev",
+    "start": "npm --prefix backend start"
+  }
+}
