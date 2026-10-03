@@ -5,6 +5,7 @@ import { api, fileUrl, openPrivateFile, useAuth, useFetch } from '../api.jsx'
 import { Img, LinkButton, Toast } from '../components/ui.jsx'
 import { DOC_ROLES, HORSE_STATUS, PHOTO_VIEWS, REQ_STATUS, RESULT_STATUS, SEXES, VIDEO_KINDS, eur, fmtDate } from '../data/content.js'
 import { breedName, disciplineName, useCatalog } from '../data/catalog.js'
+import YoungReportView from '../components/YoungReport.jsx'
 
 const camel = (s) => s.replace(/_(\w)/g, (_, c) => c.toUpperCase())
 
@@ -200,6 +201,7 @@ function HorseManager({ h, cat, onBack, onChange, notify, onReport }) {
           </div>
         </div>
       </div>
+      {(h.youngReports || []).map((r) => <div key={r.id} className="card"><YoungReportView report={r} disciplineName={disciplineName(cat, r.discipline)} /></div>)}
       <ResultsCard h={h} cat={cat} notify={notify} onChange={onChange} base="/my" />
       <VideosCard h={h} cat={cat} notify={notify} onChange={onChange} />
       <HorseDocs h={h} notify={notify} onChange={onChange} />
@@ -330,6 +332,13 @@ function VideosCard({ h, cat, notify, onChange }) {
     } catch (x) { notify(x.message) }
     setBusy(false)
   }
+  const [link, setLink] = useState('')
+  const fromUrl = async () => {
+    if (!link) return
+    setBusy(true)
+    try { await api(`/my/horses/${h.id}/videos/from-url`, { method: 'POST', body: { url: link, ...f } }); notify('Vídeo añadido'); setLink(''); onChange() } catch (x) { notify(x.message) }
+    setBusy(false)
+  }
   const del = async (v) => { if (!window.confirm('¿Borrar este vídeo?')) return; try { await api(`/my/horses/${h.id}/videos/${v.id}`, { method: 'DELETE' }); onChange() } catch (x) { notify(x.message) } }
   return (
     <div className="card">
@@ -351,6 +360,10 @@ function VideosCard({ h, cat, notify, onChange }) {
       <div className="row mt8" style={{ gap: 8 }}>
         <input className="input" style={{ flex: 1 }} type="file" accept="video/mp4,video/quicktime,video/webm" onChange={(e) => setFile(e.target.files[0])} />
         <button type="button" className="btn btn-ink btn-sm" disabled={busy || !file} onClick={send}>{busy ? 'Subiendo…' : 'Subir vídeo'}</button>
+      </div>
+      <div className="row mt8" style={{ gap: 8 }}>
+        <input className="input" style={{ flex: 1 }} placeholder="…o pega un enlace (web de la subasta, YouTube, Vimeo)" value={link} onChange={(e) => setLink(e.target.value)} />
+        <button type="button" className="btn btn-line btn-sm" disabled={busy || !link} onClick={fromUrl}>{busy ? 'Descargando…' : 'Añadir desde enlace'}</button>
       </div>
     </div>
   )

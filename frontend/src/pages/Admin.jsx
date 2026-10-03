@@ -6,7 +6,8 @@ import { LinkButton, Toast } from '../components/ui.jsx'
 import { DOC_ROLES, HORSE_STATUS, REQ_STATUS, ROLE_LABELS, SEXES, VIDEO_KINDS, fmtDate } from '../data/content.js'
 import { breedName, disciplineName, useCatalog } from '../data/catalog.js'
 import { HorseForm, ResultsCard, resultFacts } from './Panel.jsx'
-import { AnalysesList, ImportAdmin, SalesAdmin, SourcesAdmin } from './AdminData.jsx'
+import { AnalysesList, BaseRatesAdmin, ImportAdmin, SalesAdmin, SourcesAdmin } from './AdminData.jsx'
+import YoungReportView from '../components/YoungReport.jsx'
 
 const eurs = (n) => `${Number(n || 0).toLocaleString('es-ES', { minimumFractionDigits: 0, maximumFractionDigits: 2 })} €`
 
@@ -56,7 +57,7 @@ export default function Admin() {
           : <HorsesAdmin cat={cat} isAdmin={isAdmin} notify={setToast} open={setHorseId} />)}
         {tab === 'resultados' && <ResultsAdmin cat={cat} isAdmin={isAdmin} notify={setToast} openHorse={openHorse} />}
         {tab === 'subastas' && <SalesAdmin cat={cat} isAdmin={isAdmin} notify={setToast} openHorse={openHorse} />}
-        {tab === 'fuentes' && <SourcesAdmin cat={cat} isAdmin={isAdmin} notify={setToast} />}
+        {tab === 'fuentes' && <><BaseRatesAdmin cat={cat} isAdmin={isAdmin} notify={setToast} /><div className="mt32" /><SourcesAdmin cat={cat} isAdmin={isAdmin} notify={setToast} /></>}
         {tab === 'importar' && <ImportAdmin notify={setToast} />}
         {tab === 'usuarios' && <UsersAdmin notify={setToast} me={user.id} />}
         {tab === 'pagos' && <PaymentsAdmin notify={setToast} />}
@@ -256,6 +257,7 @@ function HorseAdmin({ id, cat, isAdmin, notify, onBack }) {
       </div>
       <ResultsCard h={h} cat={cat} notify={notify} onChange={reload} base="/admin"
         adminActions={isAdmin ? (r) => <div className="row" style={{ gap: 6 }}>{!r.verified && <button className="btn btn-line btn-sm" onClick={() => verify(r)}>Verificar</button>}<button className="btn btn-line btn-sm" onClick={() => remove(r)}>Borrar</button></div> : null} />
+      <YoungReportsAdmin h={h} cat={cat} isAdmin={isAdmin} notify={notify} onChange={reload} />
       <VideosAdmin h={h} notify={notify} onChange={reload} />
       <AnalysesList data={h.analyses} />
       {h.saleLots?.length > 0 && (
@@ -283,8 +285,63 @@ function HorseAdmin({ id, cat, isAdmin, notify, onBack }) {
   )
 }
 
+// Informe de potro: se genera, se revisa y se publica al cliente
+function YoungReportsAdmin({ h, cat, isAdmin, notify, onChange }) {
+  const [busy, setBusy] = useState(false)
+  const [videoId, setVideoId] = useState('')
+  const reports = h.youngReports || []
+  const generate = async () => {
+    setBusy(true)
+    try { await api(`/admin/horses/${h.id}/young-report`, { method: 'POST', body: videoId ? { videoId } : {} }); notify('Informe generado: revísalo y publícalo'); onChange() } catch (x) { notify(x.message) }
+    setBusy(false)
+  }
+  const setStatus = async (r, status) => { try { await api(`/admin/young-reports/${r.id}`, { method: 'PATCH', body: { status } }); notify(status === 'PUBLICADO' ? 'Publicado: el cliente ya lo ve en su panel' : 'Informe actualizado'); onChange() } catch (x) { notify(x.message) } }
+  const STATUS = { BORRADOR: ['Borrador', 'example'], PUBLICADO: ['Publicado', 'ok'], RETIRADO: ['Retirado', 'bad'] }
+  return (
+    <div className="card">
+      <div className="row between" style={{ flexWrap: 'wrap', gap: 8 }}>
+        <div>
+          <h3>Informe de potro</h3>
+          <p className="small muted mt8">Calidad frente a potros de su edad, probabilidad de cada nivel, salud biomecánica observable y valor de mercado. Usa las fotos y el vídeo elegido.</p>
+        </div>
+        <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+          <select className="select" value={videoId} onChange={(e) => setVideoId(e.target.value)}>
+            <option value="">Último vídeo</option>
+            {h.videos.map((v) => <option key={v.id} value={v.id}>{v.title || VIDEO_KINDS[v.kind]}</option>)}
+          </select>
+          <button className="btn btn-gold btn-sm" disabled={busy || (!h.videos.length && !h.photos.length)} onClick={generate}>{busy ? 'Generando… (1–2 min)' : 'Generar informe'}</button>
+        </div>
+      </div>
+      {reports.map((r) => {
+        const [l, c] = STATUS[r.status]
+        return (
+          <div key={r.id} className="mt24" style={{ borderTop: '1px solid var(--line)', paddingTop: 16 }}>
+            <div className="row between" style={{ marginBottom: 12 }}>
+              <span className={`badge ${c}`}>{l}</span>
+              {isAdmin && (
+                <div className="row" style={{ gap: 8 }}>
+                  {r.status !== 'PUBLICADO' && <button className="btn btn-ink btn-sm" onClick={() => setStatus(r, 'PUBLICADO')}>Publicar al cliente</button>}
+                  {r.status === 'PUBLICADO' && <button className="btn btn-line btn-sm" onClick={() => setStatus(r, 'RETIRADO')}>Retirar</button>}
+                </div>
+              )}
+            </div>
+            <YoungReportView report={r} disciplineName={disciplineName(cat, r.discipline)} />
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 function VideosAdmin({ h, notify, onChange }) {
   const [busy, setBusy] = useState('')
+  const [link, setLink] = useState({ url: '', kind: 'ENTRENAMIENTO' })
+  const fromUrl = async () => {
+    if (!link.url) return
+    setBusy('url')
+    try { await api(`/admin/horses/${h.id}/videos/from-url`, { method: 'POST', body: link }); notify('Vídeo descargado y guardado'); setLink({ ...link, url: '' }); onChange() } catch (x) { notify(x.message) }
+    setBusy('')
+  }
   const analyze = async (v) => {
     setBusy(v.id)
     try { await api(`/admin/videos/${v.id}/analyze`, { method: 'POST' }); notify('Análisis listo'); onChange() } catch (x) { notify(x.message) }
@@ -301,6 +358,11 @@ function VideosAdmin({ h, notify, onChange }) {
           <button className="btn btn-line btn-sm" disabled={busy === v.id} onClick={() => analyze(v)}>{busy === v.id ? 'Analizando… (1–2 min)' : 'Analizar con IA'}</button>
         </p>
       )) : <p className="muted mt8">Sin vídeos.</p>}
+      <div className="row mt16" style={{ gap: 8, flexWrap: 'wrap' }}>
+        <input className="input" style={{ flex: 1, minWidth: 260 }} placeholder="Pegar enlace del vídeo (web de la subasta, YouTube, Vimeo, archivo .mp4)" value={link.url} onChange={(e) => setLink({ ...link, url: e.target.value })} />
+        <select className="select" value={link.kind} onChange={(e) => setLink({ ...link, kind: e.target.value })}>{Object.entries(VIDEO_KINDS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select>
+        <button className="btn btn-ink btn-sm" disabled={busy === 'url' || !link.url} onClick={fromUrl}>{busy === 'url' ? 'Descargando…' : 'Añadir desde enlace'}</button>
+      </div>
     </div>
   )
 }

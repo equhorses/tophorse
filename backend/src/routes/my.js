@@ -20,11 +20,12 @@ const RESULT_COLS = 'id, horse_id, discipline, competition, date, country, categ
 async function withRelations(horses) {
   if (!horses.length) return [];
   const ids = horses.map((h) => h.id);
-  const [photos, videos, docs, results] = await Promise.all([
+  const [photos, videos, docs, results, reports] = await Promise.all([
     db.query('SELECT * FROM horse_photos WHERE horse_id = ANY($1)', [ids]),
     db.query('SELECT * FROM horse_videos WHERE horse_id = ANY($1) ORDER BY uploaded_at DESC', [ids]),
     db.query('SELECT id, horse_id, role, doc_type, original_name, created_at FROM horse_documents WHERE horse_id = ANY($1) ORDER BY created_at', [ids]),
     db.query(`SELECT ${RESULT_COLS} FROM results WHERE horse_id = ANY($1) ORDER BY date DESC`, [ids]),
+    db.query("SELECT id, horse_id, discipline, version, result, published_at FROM young_reports WHERE horse_id = ANY($1) AND status='PUBLICADO' ORDER BY published_at DESC", [ids]),
   ]);
   return horses.map((h) => ({
     ...h,
@@ -32,6 +33,7 @@ async function withRelations(horses) {
     videos: videos.filter((v) => v.horseId === h.id),
     documents: docs.filter((d) => d.horseId === h.id),
     results: results.filter((r) => r.horseId === h.id),
+    youngReports: reports.filter((r) => r.horseId === h.id),
   }));
 }
 
@@ -84,6 +86,7 @@ router.get('/horses/:id', wrap(async (req, res) => {
   if (!h) return;
   const [full] = await withRelations([h]);
   full.requests = await db.query('SELECT * FROM service_requests WHERE horse_id=$1 ORDER BY created_at DESC', [h.id]);
+  full.youngReports = await db.query("SELECT id, discipline, version, result, published_at FROM young_reports WHERE horse_id=$1 AND status='PUBLICADO' ORDER BY published_at DESC", [h.id]);
   res.json(full);
 }));
 
@@ -111,6 +114,20 @@ router.post('/horses/:id/videos', upload.single('file'), wrap(async (req, res) =
     [req.params.id, kind, String(b.title || '').trim() || null, recordedOn, `/uploads/${req.file.filename}`, parseInt(b.seconds, 10) || null]);
   audit(req.user.id, 'Horse', req.params.id, 'VIDEO', { kind });
   res.status(201).json(v);
+}));
+
+// Vídeo desde un enlace: el servidor lo descarga (web de la subasta, YouTube, Vimeo o archivo directo)
+router.post('/horses/:id/videos/from-url', wrap(async (req, res) => {
+  const h = await ownHorse(req, res);
+  if (!h) return;
+  const b = req.body || {};
+  const v = await require('../lib/videoFetch').fetchVideo(b.url);
+  const kind = VIDEO_KINDS.includes(b.kind) ? b.kind : 'ENTRENAMIENTO';
+  const recordedOn = /^\d{4}-\d{2}-\d{2}$/.test(String(b.recordedOn || '')) ? b.recordedOn : null;
+  const row = await db.one('INSERT INTO horse_videos(horse_id, kind, title, recorded_on, url) VALUES ($1,$2,$3,$4,$5) RETURNING *',
+    [h.id, kind, String(b.title || v.title || '').trim().slice(0, 200) || null, recordedOn, v.url]);
+  audit(req.user.id, 'Horse', h.id, 'VIDEO_ENLACE', { origen: v.source });
+  res.status(201).json(row);
 }));
 
 router.delete('/horses/:id/videos/:videoId', wrap(async (req, res) => {

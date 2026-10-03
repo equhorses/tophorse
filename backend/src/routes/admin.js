@@ -53,6 +53,10 @@ router.patch('/settings', requireRole('ADMIN'), wrap(async (req, res) => {
   if (!keys.length) return res.status(400).json({ error: 'Ajuste no válido' });
   for (const k of keys) {
     if (typeof b[k] !== typeof SETTINGS_DEFAULTS[k]) return res.status(400).json({ error: `Valor no válido para ${k}` });
+    if (k === 'base_rates') {
+      const bad = Object.values(b[k] || {}).flat().some((r) => !r || typeof r.level !== 'string' || (r.rate !== null && !(typeof r.rate === 'number' && r.rate >= 0 && r.rate <= 1)));
+      if (bad) return res.status(400).json({ error: 'Cada tasa base necesita un nivel y un valor entre 0 y 1 (o vacío)' });
+    }
     // eslint-disable-next-line no-await-in-loop
     await db.query(`INSERT INTO settings(key, value, updated_at, updated_by) VALUES ($1,$2::jsonb,now(),$3)
                     ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value, updated_at=now(), updated_by=EXCLUDED.updated_by`, [k, JSON.stringify(b[k]), req.user.id]);
@@ -107,7 +111,7 @@ router.get('/horses/:id', wrap(async (req, res) => {
      FROM horses h JOIN users u ON u.id=h.owner_id WHERE h.id::text=$1`, [req.params.id],
   );
   if (!h) return res.status(404).json({ error: 'Caballo no encontrado' });
-  const [photos, videos, results, docs, requests, analyses, saleLots] = await Promise.all([
+  const [photos, videos, results, docs, requests, analyses, saleLots, youngReports] = await Promise.all([
     db.query('SELECT * FROM horse_photos WHERE horse_id=$1', [h.id]),
     db.query('SELECT * FROM horse_videos WHERE horse_id=$1 ORDER BY uploaded_at DESC', [h.id]),
     db.query(`SELECT ${my.RESULT_COLS}, source FROM results WHERE horse_id=$1 ORDER BY date DESC`, [h.id]),
@@ -115,9 +119,10 @@ router.get('/horses/:id', wrap(async (req, res) => {
     db.query('SELECT id, service, status, created_at FROM service_requests WHERE horse_id=$1 ORDER BY created_at DESC', [h.id]),
     db.query('SELECT * FROM video_analyses WHERE horse_id=$1 ORDER BY created_at DESC', [h.id]),
     db.query('SELECT * FROM sale_lots WHERE horse_id=$1 ORDER BY sale_date DESC NULLS LAST', [h.id]),
+    db.query('SELECT * FROM young_reports WHERE horse_id=$1 ORDER BY created_at DESC', [h.id]),
   ]);
   const documents = docs.map((d) => ({ ...d, checks: DOCS.compare(h, d) }));
-  res.json({ ...h, photos, videos, results, documents, requests, analyses, saleLots });
+  res.json({ ...h, photos, videos, results, documents, requests, analyses, saleLots, youngReports });
 }));
 
 async function ownerFrom(b, fallbackId) {

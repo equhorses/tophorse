@@ -34,6 +34,7 @@ export const ROLE_LABELS = { ADMIN: 'Dirección', EVALUADOR: 'Analista', TITULAR
 
 // Productos (los paquetes de suscripción se definen con los datos; aquí solo el nombre y la idea)
 export const PACKAGES = [
+  { key: 'POTRO', name: 'Informe de potro', text: 'Para caballos jóvenes sin historial: calidad frente a los potros de su edad, probabilidad de llegar a cada nivel, salud biomecánica observable y valor de mercado.' },
   { key: 'INFORME', name: 'Informe por caballo', text: 'El análisis completo de un caballo: datos, resultados comparados, vídeo y referencia de mercado. Se paga por informe.' },
   { key: 'ANALISIS', name: 'Análisis múltiple', text: 'Para quien mira muchos caballos: catálogos de subasta, lotes o una cuadra entera, con todos los informes en un mismo panel.', soon: true },
   { key: 'RIESGO', name: 'Gestor de riesgo', text: 'Antes de comprar: qué dicen los datos, qué falta por comprobar y qué señales piden prudencia.', soon: true },

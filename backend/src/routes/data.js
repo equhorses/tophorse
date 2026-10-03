@@ -5,6 +5,10 @@ const { parseCsv, toCsv } = require('../lib/csv')
 const { discipline, isBreed } = require('../lib/disciplines')
 const { analyzeVideo } = require('../lib/analysis')
 const ai = require('../lib/ai')
+const { fetchVideo } = require('../lib/videoFetch')
+const young = require('../lib/youngReport')
+const { getSetting } = require('../lib/common')
+const { VIDEO_KINDS } = require('../lib/disciplines')
 const my = require('./my')
 const multer = require('multer')
 
@@ -269,6 +273,66 @@ router.get('/analyses', wrap(async (req, res) => {
     `SELECT a.*, v.kind AS video_kind, v.title AS video_title FROM video_analyses a LEFT JOIN horse_videos v ON v.id=a.video_id
      WHERE ($1='' OR a.horse_id::text=$1) AND ($2='' OR a.sale_lot_id::text=$2) ORDER BY a.created_at DESC LIMIT 100`, [horseId, lotId],
   ))
+}))
+
+// ─── Vídeo desde un enlace (el servidor lo descarga y lo guarda para poder analizarlo) ───
+router.post('/horses/:id/videos/from-url', wrap(async (req, res) => {
+  const h = await db.one('SELECT id, name FROM horses WHERE id::text=$1', [req.params.id])
+  if (!h) return res.status(404).json({ error: 'Caballo no encontrado' })
+  const b = req.body || {}
+  const v = await fetchVideo(b.url)
+  const kind = VIDEO_KINDS.includes(b.kind) ? b.kind : 'ENTRENAMIENTO'
+  const row = await db.one('INSERT INTO horse_videos(horse_id, kind, title, url) VALUES ($1,$2,$3,$4) RETURNING *',
+    [h.id, kind, String(b.title || v.title || '').trim().slice(0, 200) || null, v.url])
+  audit(req.user.id, 'Horse', h.id, 'VIDEO_ENLACE', { origen: v.source })
+  res.status(201).json(row)
+}))
+
+router.post('/sale-lots/:id/fetch-video', requireRole('ADMIN'), wrap(async (req, res) => {
+  const l = await db.one('SELECT id, video_url FROM sale_lots WHERE id::text=$1', [req.params.id])
+  if (!l) return res.status(404).json({ error: 'Lote no encontrado' })
+  const url = (req.body && req.body.url) || l.videoUrl
+  if (!url) return res.status(400).json({ error: 'El lote no tiene enlace de vídeo' })
+  const v = await fetchVideo(url)
+  const out = await db.one('UPDATE sale_lots SET video_file=$2, video_url=COALESCE(video_url,$3) WHERE id=$1 RETURNING *', [l.id, v.url, v.source])
+  audit(req.user.id, 'SaleLot', l.id, 'VIDEO_ENLACE', { origen: v.source })
+  res.json(out)
+}))
+
+// ─── Informe de potro ───
+router.post('/horses/:id/young-report', wrap(async (req, res) => {
+  if (!ai.isConfigured()) return res.status(503).json({ error: 'La IA no está configurada' })
+  const h = await db.one('SELECT * FROM horses WHERE id::text=$1', [req.params.id])
+  if (!h) return res.status(404).json({ error: 'Caballo no encontrado' })
+  const photos = await db.query('SELECT view, url FROM horse_photos WHERE horse_id=$1', [h.id])
+  const videoId = req.body?.videoId
+  const video = videoId ? await db.one('SELECT * FROM horse_videos WHERE id::text=$1 AND horse_id=$2', [videoId, h.id])
+    : await db.one('SELECT * FROM horse_videos WHERE horse_id=$1 ORDER BY uploaded_at DESC LIMIT 1', [h.id])
+  if (!video && !photos.length) return res.status(400).json({ error: 'Sube al menos un vídeo o las fotos del caballo' })
+  const rates = (await getSetting('base_rates')) || {}
+  const g = await young.generate({ db, horse: h, photos, video, uploadDir: UPLOAD_DIR, baseRates: rates[h.discipline] || [] })
+  const r = await db.one(
+    'INSERT INTO young_reports(horse_id, discipline, model, version, inputs, result, created_by) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *',
+    [h.id, h.discipline, g.model, young.VERSION, JSON.stringify(g.inputs), JSON.stringify(g.result), req.user.id],
+  )
+  audit(req.user.id, 'YoungReport', r.id, 'GENERAR', { caballo: h.name, percentil: g.result.quality?.percentile ?? null })
+  res.status(201).json(r)
+}))
+
+router.get('/young-reports', wrap(async (req, res) => {
+  res.json(await db.query('SELECT * FROM young_reports WHERE horse_id::text=$1 ORDER BY created_at DESC', [String(req.query.horseId || '')]))
+}))
+
+router.patch('/young-reports/:id', requireRole('ADMIN'), wrap(async (req, res) => {
+  const { status, adminNotes } = req.body || {}
+  if (status && !['BORRADOR', 'PUBLICADO', 'RETIRADO'].includes(status)) return res.status(400).json({ error: 'Estado no válido' })
+  const r = await db.one(
+    `UPDATE young_reports SET status=COALESCE($2,status), admin_notes=COALESCE($3,admin_notes),
+       published_at=CASE WHEN $2='PUBLICADO' THEN now() ELSE published_at END WHERE id::text=$1 RETURNING *`, [req.params.id, status || null, adminNotes ?? null],
+  )
+  if (!r) return res.status(404).json({ error: 'Informe no encontrado' })
+  audit(req.user.id, 'YoungReport', r.id, 'ESTADO', { status, adminNotes })
+  res.json(r)
 }))
 
 module.exports = router

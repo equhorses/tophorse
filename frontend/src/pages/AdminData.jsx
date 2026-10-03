@@ -13,6 +13,54 @@ const LOT_STATUS = { VENDIDO: ['Vendido', 'ok'], RECOMPRADO: ['Recomprado', 'exa
 
 const money = (n, cur) => (n == null ? '—' : `${Number(n).toLocaleString('es-ES', { maximumFractionDigits: 0 })} ${cur === 'EUR' ? '€' : cur || ''}`)
 
+// ─── TASAS BASE ───
+// Qué % de potros de cada disciplina llega a cada nivel. Es el punto de partida de todas las probabilidades del informe de potro.
+export function BaseRatesAdmin({ cat, isAdmin, notify }) {
+  const { data, reload } = useFetch('/admin/settings')
+  const [edit, setEdit] = useState(null)
+  if (!data || !cat) return null
+  const rates = data.base_rates || {}
+  const levelsOf = (d) => cat.knowledge?.young?.[d] || []
+  const start = () => setEdit(Object.fromEntries(cat.disciplines.map((d) => {
+    const names = [...new Set([...levelsOf(d.key), ...(rates[d.key] || []).map((r) => r.level)])]
+    return [d.key, names.map((level) => { const r = (rates[d.key] || []).find((x) => x.level === level); return { level, rate: r?.rate != null ? String(Math.round(r.rate * 1000) / 10) : '', source: r?.source || '' } })]
+  })))
+  const save = async () => {
+    const body = Object.fromEntries(Object.entries(edit).map(([k, list]) => [k, list.filter((r) => r.rate !== '').map((r) => ({ level: r.level, rate: Number(String(r.rate).replace(',', '.')) / 100, source: r.source || null }))]))
+    try { await api('/admin/settings', { method: 'PATCH', body: { base_rates: body } }); notify('Tasas base guardadas'); setEdit(null); reload() } catch (x) { notify(x.message) }
+  }
+  return (
+    <div className="card">
+      <div className="row between" style={{ flexWrap: 'wrap', gap: 8 }}>
+        <div>
+          <h3>Tasas base por disciplina</h3>
+          <p className="small muted mt8">De cada 100 potros, cuántos llegan a cada nivel. Todas las probabilidades del informe de potro parten de aquí. Solo hay cifras con fuente; el resto se rellenará con los datos de los convenios (FN, SWB, KWPN…).</p>
+        </div>
+        {isAdmin && !edit && <button className="btn btn-line btn-sm" onClick={start}>Editar</button>}
+        {edit && <div className="row" style={{ gap: 8 }}><button className="btn btn-gold btn-sm" onClick={save}>Guardar</button><button className="btn btn-line btn-sm" onClick={() => setEdit(null)}>Cancelar</button></div>}
+      </div>
+      <div className="grid g2 mt16" style={{ gap: 16 }}>
+        {cat.disciplines.map((d) => (
+          <div key={d.key}>
+            <p className="small t-name">{d.name}</p>
+            <table className="table mt8"><tbody>{(edit ? edit[d.key] : levelsOf(d.key).map((level) => ({ level, ...((rates[d.key] || []).find((x) => x.level === level) || {}) }))).map((r, i) => (
+              <tr key={r.level}>
+                <td className="small">{r.level}</td>
+                <td className="small" style={{ width: 110 }}>{edit
+                  ? <input className="input" style={{ padding: '4px 8px' }} inputMode="decimal" placeholder="%" value={r.rate} onChange={(e) => setEdit({ ...edit, [d.key]: edit[d.key].map((x, n) => (n === i ? { ...x, rate: e.target.value } : x)) })} />
+                  : r.rate != null ? `${Math.round(r.rate * 1000) / 10} %` : <span className="muted">sin dato</span>}</td>
+                <td className="small muted">{edit
+                  ? <input className="input" style={{ padding: '4px 8px' }} placeholder="Fuente" value={r.source} onChange={(e) => setEdit({ ...edit, [d.key]: edit[d.key].map((x, n) => (n === i ? { ...x, source: e.target.value } : x)) })} />
+                  : r.source}</td>
+              </tr>
+            ))}</tbody></table>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 // ─── FUENTES ───
 export function SourcesAdmin({ cat, isAdmin, notify }) {
   const { data, loading, reload } = useFetch('/admin/sources')
@@ -167,6 +215,11 @@ function LotDetail({ id, lots, cat, isAdmin, notify, openHorse, onBack }) {
     try { await api(`/admin/sale-lots/${id}/analyze`, { method: 'POST' }); notify('Análisis listo'); analyses.reload() } catch (x) { notify(x.message) }
     setBusy('')
   }
+  const fetchFromLink = async () => {
+    setBusy('fetch')
+    try { await api(`/admin/sale-lots/${id}/fetch-video`, { method: 'POST', body: {} }); notify('Vídeo descargado desde el enlace'); onBack() } catch (x) { notify(x.message) }
+    setBusy('')
+  }
   const del = async () => { if (!window.confirm('¿Borrar este lote del archivo?')) return; try { await api(`/admin/sale-lots/${id}`, { method: 'DELETE' }); notify('Lote borrado'); onBack() } catch (x) { notify(x.message) } }
   return (
     <div className="stack">
@@ -185,7 +238,8 @@ function LotDetail({ id, lots, cat, isAdmin, notify, openHorse, onBack }) {
         <div className="card">
           <h3>Vídeo</h3>
           {l.videoUrl && <p className="mt8"><a className="link" href={l.videoUrl} target="_blank" rel="noreferrer">Ver en origen</a></p>}
-          {l.videoFile ? <video src={fileUrl(l.videoFile)} controls style={{ width: '100%', marginTop: 12 }} /> : <p className="small muted mt8">La IA analiza archivos: sube una copia del vídeo (descárgalo desde la web de la subasta).</p>}
+          {l.videoFile ? <video src={fileUrl(l.videoFile)} controls style={{ width: '100%', marginTop: 12 }} /> : <p className="small muted mt8">La IA analiza archivos: descárgalo desde el enlace o sube una copia.</p>}
+          {isAdmin && l.videoUrl && !l.videoFile && <button className="btn btn-ink btn-sm mt16" style={{ marginRight: 8 }} disabled={busy === 'fetch'} onClick={fetchFromLink}>{busy === 'fetch' ? 'Descargando…' : 'Descargar desde el enlace'}</button>}
           {isAdmin && <label className="btn btn-line btn-sm mt16" style={{ cursor: 'pointer' }}>{busy === 'video' ? 'Subiendo…' : l.videoFile ? 'Cambiar copia del vídeo' : 'Subir copia del vídeo'}<input type="file" accept="video/mp4,video/quicktime,video/webm" style={{ display: 'none' }} onChange={(e) => uploadVideo(e.target.files[0])} /></label>}
           {l.videoFile && <button className="btn btn-gold btn-sm mt16" style={{ marginLeft: 8 }} disabled={busy === 'ai'} onClick={analyze}>{busy === 'ai' ? 'Analizando… (1–2 min)' : 'Analizar con IA'}</button>}
         </div>

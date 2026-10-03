@@ -44,7 +44,7 @@ export default function Home() {
           <h1>Antes de invertir en un caballo, <em>mira sus datos.</em></h1>
           <p className="lead">
             TopHorses reúne y analiza todo lo que dice un caballo: su genealogía, sus resultados, su movimiento en vídeo y su mercado.
-            Un informe claro y comparado para decidir con criterio cuándo comprar, vender, entrenar o cambiar de rumbo, sin perder tiempo ni dinero.
+            Un informe claro y comparado para decidir con criterio cuándo comprar, vender, entrenar o cambiar de rumbo, sin perder tiempo ni dinero. También en potros sin historial: su calidad frente a los de su edad, sus probabilidades, su salud biomecánica y su valor.
           </p>
           <div className="row mt32">
             <Link className="btn btn-gold" to="/alta">Crear cuenta →</Link>
@@ -115,7 +115,7 @@ export default function Home() {
             </div>
             <Link to="/servicios" className="btn btn-line">Ver servicios</Link>
           </div>
-          <div className="grid g4 mt48">
+          <div className="grid g3 mt48">
             {PACKAGES.map((p) => (
               <div key={p.key} className="card pkg">
                 {p.soon && <span className="badge example soon">Próximamente</span>}

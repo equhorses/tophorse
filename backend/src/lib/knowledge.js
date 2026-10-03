@@ -108,3 +108,57 @@ function promptFor(key) {
 }
 
 module.exports = { GENERAL, FILMING, DISCIPLINE_KNOWLEDGE, promptFor }
+
+// ─── Potros y caballos jóvenes sin historial (investigación de octubre de 2026, docs/Studbooks centroeuropeos y potros.md) ───
+// Rasgos que la IA puntúa de 1 a 10 en vídeo y foto, con su peso por disciplina.
+// Los pesos siguen la evidencia: en doma pesan los aires (trote y galope) y la montabilidad; en salto, la técnica y la capacidad en libertad.
+const YOUNG_TRAITS = {
+  tipo: 'Tipo y expresión',
+  conformacion: 'Conformación funcional',
+  aplomos: 'Aplomos',
+  paso: 'Paso',
+  trote: 'Trote',
+  galope: 'Galope',
+  equilibrio: 'Equilibrio y autoporte',
+  tecnica_salto: 'Técnica de salto (en libertad)',
+  capacidad_salto: 'Capacidad y elasticidad sobre el salto',
+  velocidad: 'Mecánica de galope rápido (tranco, frecuencia)',
+  actitud: 'Actitud y reacción',
+}
+
+const YOUNG = {
+  CARRERAS_PSI: { weights: { conformacion: 2, aplomos: 2, galope: 3, velocidad: 4, equilibrio: 1, actitud: 1 }, levels: ['Corre', 'Gana una carrera', 'Gana un stakes', 'Gana un Grupo 1'] },
+  CARRERAS_ARABE: { weights: { conformacion: 2, aplomos: 2, galope: 3, velocidad: 4, equilibrio: 1, actitud: 1 }, levels: ['Corre', 'Gana una carrera', 'Gana una carrera de Grupo'] },
+  CARRERAS_QH: { weights: { conformacion: 2, aplomos: 2, galope: 2, velocidad: 4, actitud: 1 }, levels: ['Corre', 'Register of Merit (SI ≥ 80)', 'Finalista de futurity'] },
+  RAID: { weights: { conformacion: 2, aplomos: 3, paso: 1, trote: 3, equilibrio: 1, actitud: 1 }, levels: ['Completa 80 km', 'CEI 2*', 'CEI 3*'] },
+  REINING: { weights: { conformacion: 2, aplomos: 2, galope: 3, equilibrio: 3, actitud: 2 }, levels: ['Compite en futurity', 'Gana dinero en futurity', 'Finalista Open'] },
+  DOMA_CLASICA: { weights: { tipo: 1, conformacion: 1, aplomos: 1, paso: 2, trote: 3, galope: 3, equilibrio: 2, actitud: 1 }, levels: ['Compite', 'Nivel San Jorge', 'Gran Premio'] },
+  SALTO: { weights: { conformacion: 1, aplomos: 1, galope: 2, equilibrio: 1, tecnica_salto: 3, capacidad_salto: 3, actitud: 1 }, levels: ['Compite', '1,40 m', '1,60 m'] },
+  COMPLETO: { weights: { conformacion: 1, aplomos: 2, galope: 3, equilibrio: 1, tecnica_salto: 2, capacidad_salto: 2, actitud: 1 }, levels: ['Compite', 'CCI3*', 'CCI4* o superior'] },
+}
+
+// Tasas base por defecto: solo las que tienen fuente. El resto queda vacío hasta tener datos de convenio
+// (la dirección las edita en el panel; se guardan en el ajuste "base_rates").
+const DEFAULT_BASE_RATES = {
+  CARRERAS_PSI: [
+    { level: 'Corre', rate: 0.70, source: 'Jockey Club (Nueva York), 65–74 % según generación' },
+    { level: 'Gana un stakes', rate: 0.025, source: 'Fuente comercial (Commonwealth) 2–3 %, sin verificar' },
+    { level: 'Gana un Grupo 1', rate: 0.002, source: 'Fuente comercial (Commonwealth) ~0,2 %, sin verificar' },
+  ],
+  DOMA_CLASICA: [{ level: 'Compite', rate: 0.30, source: 'SWB: ~30 % de los potros registrados se clasifica alguna vez' }],
+  SALTO: [{ level: 'Compite', rate: 0.30, source: 'SWB: ~30 % de los potros registrados se clasifica alguna vez' }],
+  COMPLETO: [{ level: 'Compite', rate: 0.30, source: 'SWB: ~30 % de los potros registrados se clasifica alguna vez (referencia de sangre caliente)' }],
+}
+
+// Señales de salud observables y lo que no se puede evaluar por vídeo
+const HEALTH = {
+  observable: ['Aplomos y desviaciones angulares (ajustado a la edad: muchas se corrigen solas)', 'Asimetría de cabeza y pelvis al trote (frecuente en caballos sanos; solo cuenta si es grande y se repite)',
+    'Posible distensión articular (babilla, corvejón, menudillo)', 'Interferencias, campaneo, ritmo irregular', 'Incoordinación, arrastre de pinzas, base inconsistente (valoración neurológica prioritaria)'],
+  notEvaluable: ['Osteocondrosis (OC/OCD), quistes y sesamoideos: radiografías a partir de ~12 meses', 'Vía aérea y laringe: endoscopia', 'Corazón: auscultación o ecocardiografía', 'Exploración neurológica completa, flexiones y palpación'],
+  levels: { SIN_HALLAZGOS: 'Sin hallazgos relevantes', VIGILAR: 'A vigilar', VETERINARIO: 'Recomendada valoración veterinaria' },
+}
+
+module.exports.YOUNG_TRAITS = YOUNG_TRAITS
+module.exports.YOUNG = YOUNG
+module.exports.DEFAULT_BASE_RATES = DEFAULT_BASE_RATES
+module.exports.HEALTH = HEALTH

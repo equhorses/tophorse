@@ -60,7 +60,8 @@ const ageYears = (birth, at = new Date()) => {
 const wrap = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 
 // Ajustes de la dirección (clave/valor). Añadir aquí cada ajuste nuevo con su valor por defecto.
-const SETTINGS_DEFAULTS = {};
+// base_rates: tasas base por disciplina y nivel (se rellenan con datos de convenio)
+const SETTINGS_DEFAULTS = { base_rates: require('./knowledge').DEFAULT_BASE_RATES };
 async function getSetting(key, client) {
   const r = await db.one('SELECT value FROM settings WHERE key=$1', [key], client);
   return r ? r.value : SETTINGS_DEFAULTS[key];
