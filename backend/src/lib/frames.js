@@ -14,6 +14,18 @@ const run = (args) => new Promise((resolve) => {
 
 const mmss = (sec) => `${String(Math.floor(sec / 60)).padStart(2, '0')}:${String(Math.floor(sec % 60)).padStart(2, '0')}`;
 
+// Datos técnicos del vídeo: duración, resolución y fotogramas por segundo
+async function probe(file) {
+  const { out } = await run(['-hide_banner', '-i', file]);
+  const d = out.match(/Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)/);
+  const v = out.match(/Video:.*?(\d{2,5})x(\d{2,5})/);
+  const f = out.match(/(\d+(?:\.\d+)?) fps/);
+  return {
+    seconds: d ? Number(d[1]) * 3600 + Number(d[2]) * 60 + Number(d[3]) : null,
+    width: v ? Number(v[1]) : null, height: v ? Number(v[2]) : null, fps: f ? Number(f[1]) : null,
+  };
+}
+
 async function duration(file) {
   const { out } = await run(['-hide_banner', '-i', file]);
   const m = out.match(/Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)/);
@@ -82,4 +94,4 @@ async function resizeImage(file, max = 2000) {
   }
 }
 
-module.exports = { resizeImage, extractFrames, extractBursts, mmss };
+module.exports = { resizeImage, extractFrames, extractBursts, mmss, probe };

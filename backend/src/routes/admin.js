@@ -163,6 +163,14 @@ router.patch('/horses/:id', requireRole('ADMIN'), wrap(async (req, res) => {
     if (v.error) return res.status(400).json({ error: v.error });
     Object.entries(v.data).forEach(([col, val]) => { if (String(val ?? '') !== String(h[toCamel(col)] ?? '')) put(col, val); });
   }
+  if (b.pedigreeData !== undefined) {
+    // { sireIndex: {value, scale: 'BASE100'|'OTRA', source, reliability}, damsireIndex: {...}, damProduce, notes }
+    const pdIn = b.pedigreeData || null;
+    const idx = (x) => (x && (x.value !== '' && x.value != null) ? { value: Number(String(x.value).replace(',', '.')), scale: x.scale === 'OTRA' ? 'OTRA' : 'BASE100', source: String(x.source || '').slice(0, 200) || null, reliability: x.reliability === '' || x.reliability == null ? null : Number(x.reliability) } : null);
+    const pd = pdIn && { sireIndex: idx(pdIn.sireIndex), damsireIndex: idx(pdIn.damsireIndex), damProduce: String(pdIn.damProduce || '').slice(0, 1000) || null, notes: String(pdIn.notes || '').slice(0, 1000) || null };
+    if (pd && [pd.sireIndex, pd.damsireIndex].some((x) => x && !Number.isFinite(x.value))) return res.status(400).json({ error: 'El índice debe ser un número' });
+    put('pedigree_data', pd ? JSON.stringify(pd) : null);
+  }
   if (b.externalOwner !== undefined) put('external_owner', String(b.externalOwner).trim() || null);
   if (b.adminNotes !== undefined) put('admin_notes', b.adminNotes || null);
   if (b.status !== undefined) {

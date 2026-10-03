@@ -4,7 +4,9 @@ const ai = require('./ai')
 const { YOUNG_TRAITS, YOUNG, HEALTH, FILMING, DISCIPLINE_KNOWLEDGE, GENERAL, stageFor } = require('./knowledge')
 const { discipline: disciplineOf } = require('./disciplines')
 
-const VERSION = 'potro-0.2'
+const VERSION = 'potro-0.3'
+const path = require('path')
+const { probe } = require('./frames')
 
 function prompt({ disciplineKey, subject, ageMonths, stage }) {
   const d = disciplineOf(disciplineKey)
@@ -82,32 +84,109 @@ async function marketValue(db, { disciplineKey, ageYears, breed }) {
   }
 }
 
+// Peso de la genética frente al vídeo según la etapa: cuanto más joven, más pesan los padres
+const GENETIC_WEIGHT = { POTRO: 0.6, YEARLING: 0.5, JOVEN: 0.45, DOS_ANOS: 0.3, PRIMERA_MONTA: 0.3 }
+const LEVEL_ORDER = ['SIN_HALLAZGOS', 'VIGILAR', 'VETERINARIO']
+const worst = (list) => list.reduce((w, l) => (LEVEL_ORDER.indexOf(l) > LEVEL_ORDER.indexOf(w) ? l : w), 'SIN_HALLAZGOS')
+
+// Media parental con índices en base 100 ± 20 (FN, CDE, SWB…): padre 1/2, abuelo materno 1/4, resto media
+function genetics(pd) {
+  if (!pd) return null
+  const val = (x) => (x && x.scale === 'BASE100' && Number.isFinite(Number(x.value)) ? Number(x.value) : null)
+  const sire = val(pd.sireIndex); const damsire = val(pd.damsireIndex)
+  if (sire == null && damsire == null) return { usable: false, sire: pd.sireIndex || null, damsire: pd.damsireIndex || null, damProduce: pd.damProduce || null, notes: pd.notes || null }
+  const pm = 0.5 * (sire ?? 100) + 0.25 * (damsire ?? 100) + 0.25 * 100
+  return { usable: true, sire: pd.sireIndex || null, damsire: pd.damsireIndex || null, damProduce: pd.damProduce || null, notes: pd.notes || null, parentMean: Math.round(pm * 10) / 10, z: (pm - 100) / 20 }
+}
+
+// Control del material: duración, resolución y fotogramas por segundo
+async function materialCheck(video, uploadDir) {
+  if (!video) return { ok: false, issues: ['Sin vídeo: solo se valora con fotos'] }
+  const info = await probe(path.join(uploadDir, path.basename(video.url))).catch(() => ({}))
+  const issues = []
+  if (info.seconds != null && info.seconds < 15) issues.push(`Vídeo corto (${Math.round(info.seconds)} s): mejor 30–60 s con todos los aires`)
+  if (info.height != null && Math.min(info.width, info.height) < 480) issues.push(`Resolución baja (${info.width}×${info.height}): mejor 720p o más`)
+  if (info.fps != null && info.fps < 25) issues.push(`Pocos fotogramas por segundo (${info.fps}): mejor 50–60 fps o más`)
+  return { ...info, ok: !issues.length, issues, fpsForMeasuring: info.fps != null && info.fps >= 50 }
+}
+
+// Combina las lecturas de varias IAs: media por rasgo, discrepancias y la señal de salud más prudente
+function combineRuns(runs) {
+  const first = runs[0].result || {}
+  if (runs.length === 1) return { ...first, readings: 1, discrepancies: [] }
+  const keys = new Set(runs.flatMap((r) => (r.result.traits || []).map((t) => t.key)))
+  const discrepancies = []
+  const traits = [...keys].map((key) => {
+    const list = runs.map((r) => (r.result.traits || []).find((t) => t.key === key)).filter(Boolean)
+    const nums = list.map((t) => t.score).filter((x) => typeof x === 'number')
+    if (nums.length > 1 && Math.max(...nums) - Math.min(...nums) > 2) discrepancies.push({ key, scores: nums })
+    return { ...list[0], score: nums.length ? Math.round(nums.reduce((a, b) => a + b, 0) / nums.length * 10) / 10 : null, scores: nums }
+  })
+  const signals = new Map()
+  runs.forEach((r) => (r.result.health || []).forEach((h) => {
+    const prev = signals.get(h.signal)
+    if (!prev || LEVEL_ORDER.indexOf(h.level) > LEVEL_ORDER.indexOf(prev.level)) signals.set(h.signal, h)
+  }))
+  return { ...first, traits, health: [...signals.values()], filmingOk: runs.every((r) => r.result.filmingOk === true), readings: runs.length, discrepancies }
+}
+
 async function generate({ db, horse, photos, video, uploadDir, baseRates }) {
   const ageMonths = Math.max(0, Math.round((Date.now() - new Date(horse.birthDate).getTime()) / (30.44 * 864e5)))
   const subject = `${horse.name}, ${horse.sex.toLowerCase()}, raza ${horse.breed}${horse.sireName ? `, por ${horse.sireName}` : ''}${horse.damName ? ` y ${horse.damName}` : ''}${horse.damsireName ? ` (${horse.damsireName})` : ''}`
   const stage = stageFor(horse.discipline, ageMonths)
-  const out = await ai.runAnalysis({ prompt: prompt({ disciplineKey: horse.discipline, subject, ageMonths, stage }), photos, video, uploadDir, maxProviders: 1 })
-  const run = out.runs[0]
-  const r = run.result || {}
+  const material = await materialCheck(video, uploadDir)
+  // Doble lectura: todas las IAs configuradas (AI_* y AI2_*) valoran por separado
+  const out = await ai.runAnalysis({ prompt: prompt({ disciplineKey: horse.discipline, subject, ageMonths, stage }), photos, video, uploadDir })
+  const r = combineRuns(out.runs)
   const y = YOUNG[horse.discipline]
   const traits = (r.traits || []).map((t) => ({ ...t, name: YOUNG_TRAITS[t.key] || t.key, weight: stage.weights[t.key] || 0 })).filter((t) => t.weight)
-  const q = qualityIndex(traits, stage.weights)
+  const qVideo = qualityIndex(traits, stage.weights)
+  // Genética de los padres combinada con el vídeo según la etapa
+  const gen = genetics(horse.pedigreeData)
+  let q = qVideo
+  if (gen?.usable) {
+    const wg = GENETIC_WEIGHT[stage.key] ?? 0.4
+    const z = qVideo ? (1 - wg) * qVideo.z + wg * gen.z : gen.z
+    q = { ...(qVideo || { index: null, coverage: 0 }), z, percentile: Math.max(1, Math.min(99, Math.round(cdf(z) * 100))), videoPercentile: qVideo?.percentile ?? null, geneticWeight: wg }
+  }
   const levels = y.levels.map((level) => (baseRates || []).find((b) => b.level === level) || { level, rate: null, source: null })
   const health = (r.health || []).filter((h) => HEALTH.levels[h.level])
+  // Informe veterinario más reciente aportado
+  const vetDoc = await db.one("SELECT extracted, created_at FROM horse_documents WHERE horse_id=$1 AND role='VETERINARIO' AND extracted IS NOT NULL ORDER BY created_at DESC LIMIT 1", [horse.id])
+  const vet = vetDoc?.extracted?.vet || null
+  // Evolución: informes anteriores del mismo caballo
+  const prev = await db.query("SELECT created_at, result FROM young_reports WHERE horse_id=$1 AND status <> 'RETIRADO' ORDER BY created_at DESC LIMIT 5", [horse.id])
+  const evolution = prev.map((p) => ({
+    date: p.createdAt, stage: p.result?.stage?.name || null, percentile: p.result?.quality?.percentile ?? null,
+    traits: Object.fromEntries((p.result?.traits || []).filter((t) => typeof t.score === 'number').map((t) => [t.key, t.score])),
+  }))
+  const last = evolution[0]
+  traits.forEach((t) => { if (last && typeof last.traits[t.key] === 'number' && typeof t.score === 'number') t.delta = Math.round((t.score - last.traits[t.key]) * 10) / 10 })
+  // Confianza: parte de la etapa y sube con buen material, genética y lecturas que coinciden
+  let pts = 0
+  if (r.filmingOk && material.ok) pts += 1
+  if (gen?.usable) pts += 1
+  if (r.readings > 1 && !r.discrepancies.length) pts += 1
+  if (qVideo && qVideo.coverage >= 80) pts += 1
+  const cap = stage.reliability === 'MEDIA' ? 'ALTA' : 'MEDIA'
+  const confidence = pts >= 3 ? cap : pts >= 2 ? 'MEDIA' : 'BAJA'
   const ageYears = Math.floor(ageMonths / 12)
   return {
-    model: run.model,
+    model: out.runs.map((x) => x.model).join(' + '),
     inputs: { photos: photos.map((p) => p.view), video: video ? video.url : null, ageMonths, media: out.media },
     result: {
-      version: VERSION, stage: { key: stage.key, name: stage.name, reliability: stage.reliability, material: stage.material, note: stage.note }, filmingOk: r.filmingOk === true, filmingNotes: r.filmingNotes || '', summary: r.summary || '', disciplineFit: r.disciplineFit || '',
-      traits, quality: q, probabilities: probabilities(levels, q),
-      health, healthOverall: health.some((h) => h.level === 'VETERINARIO') ? 'VETERINARIO' : health.some((h) => h.level === 'VIGILAR') ? 'VIGILAR' : 'SIN_HALLAZGOS',
-      notEvaluable: HEALTH.notEvaluable,
+      version: VERSION, stage: { key: stage.key, name: stage.name, reliability: stage.reliability, material: stage.material, note: stage.note },
+      filmingOk: r.filmingOk === true, filmingNotes: r.filmingNotes || '', summary: r.summary || '', disciplineFit: r.disciplineFit || '',
+      readings: r.readings, discrepancies: r.discrepancies.map((d) => ({ ...d, name: YOUNG_TRAITS[d.key] || d.key })),
+      material, traits, quality: q, genetics: gen, evolution,
+      probabilities: probabilities(levels, q),
+      health, vet, healthOverall: worst([...health.map((h) => h.level), ...(vet?.overall && LEVEL_ORDER.includes(vet.overall) ? [vet.overall] : [])]),
+      notEvaluable: vet ? HEALTH.notEvaluable.filter((x) => !(vet.examType && /radiogr/i.test(vet.examType) && /Osteocondrosis/.test(x))) : HEALTH.notEvaluable,
       market: await marketValue(db, { disciplineKey: horse.discipline, ageYears, breed: horse.breed }),
-      // La confianza nunca supera la fiabilidad de la etapa
-      confidence: !q || !r.filmingOk || q.coverage < 80 ? 'BAJA' : stage.reliability === 'MEDIA' ? 'MEDIA' : 'BAJA',
+      confidence,
       provisional: ['Percentil: escala provisional (5 = media de su edad) hasta calibrar con potros seguidos en el tiempo',
-        'Probabilidades: tasa base × ajuste por percentil, modelo no calibrado prospectivamente', 'Valor futuro a 4–6 años: pendiente de reunir precios por nivel'],
+        'Probabilidades: tasa base × ajuste por percentil, modelo no calibrado prospectivamente', 'Valor futuro a 4–6 años: pendiente de reunir precios por nivel',
+        ...(gen?.usable ? [`Genética: media parental con índices en base 100 ± 20; pesa un ${Math.round((GENETIC_WEIGHT[stage.key] ?? 0.4) * 100)} % en esta etapa`] : [])],
     },
   }
 }

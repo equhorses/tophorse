@@ -19,7 +19,7 @@ export const VIDEO_KINDS = {
   ENTRENAMIENTO: 'Entrenamiento', COMPETICION: 'Competición / carrera', SUBASTA: 'Subasta (breeze-up / presentación)', A_LA_MANO: 'A la mano', LIBERTAD: 'En libertad',
 }
 
-export const DOC_ROLES = { EJEMPLAR: 'Documento del caballo', PADRE: 'Documento del padre', MADRE: 'Documento de la madre' }
+export const DOC_ROLES = { EJEMPLAR: 'Documento del caballo', PADRE: 'Documento del padre', MADRE: 'Documento de la madre', VETERINARIO: 'Informe veterinario (radiografías, precompra…)' }
 
 export const REQ_STATUS = {
   PENDIENTE_PAGO: ['Pendiente de pago', 'example'], PAGADA: ['Pagada', 'ok'], EN_REVISION: ['En preparación', 'light'],

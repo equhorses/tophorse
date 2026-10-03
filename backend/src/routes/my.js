@@ -15,6 +15,17 @@ async function ownHorse(req, res) {
   return h;
 }
 
+// Aviso de calidad del vídeo al subirlo (no lo rechaza: el informe lo tendrá en cuenta)
+async function videoWarnings(url) {
+  const { probe } = require('../lib/frames');
+  const info = await probe(require('path').join(require('../lib/common').UPLOAD_DIR, require('path').basename(url))).catch(() => ({}));
+  const w = [];
+  if (info.seconds != null && info.seconds < 15) w.push(`es corto (${Math.round(info.seconds)} s); mejor 30–60 s`);
+  if (info.height != null && Math.min(info.width, info.height) < 480) w.push('tiene poca resolución; mejor 720p o más');
+  if (info.fps != null && info.fps < 25) w.push(`tiene pocos fotogramas por segundo (${info.fps}); mejor 50–60`);
+  return { info, warnings: w };
+}
+
 const RESULT_COLS = 'id, horse_id, discipline, competition, date, country, category, level, position, field_size, status, score, faults, time_s, distance_m, speed_kmh, going, rating, earnings_eur, lengths_beaten, weight_kg, rating_authority, speed_index, penalties, elimination_reason, event_mean_score, event_clear_count, verified, ai_warning, document_url, created_at';
 
 async function withRelations(horses) {
@@ -113,7 +124,9 @@ router.post('/horses/:id/videos', upload.single('file'), wrap(async (req, res) =
   const v = await db.one('INSERT INTO horse_videos(horse_id, kind, title, recorded_on, url, seconds) VALUES ($1,$2,$3,$4,$5,$6) RETURNING *',
     [req.params.id, kind, String(b.title || '').trim() || null, recordedOn, `/uploads/${req.file.filename}`, parseInt(b.seconds, 10) || null]);
   audit(req.user.id, 'Horse', req.params.id, 'VIDEO', { kind });
-  res.status(201).json(v);
+  const q = await videoWarnings(v.url);
+  if (q.info.seconds) await db.query('UPDATE horse_videos SET seconds=$2 WHERE id=$1', [v.id, Math.round(q.info.seconds)]);
+  res.status(201).json({ ...v, warnings: q.warnings });
 }));
 
 // Vídeo desde un enlace: el servidor lo descarga (web de la subasta, YouTube, Vimeo o archivo directo)
@@ -127,7 +140,9 @@ router.post('/horses/:id/videos/from-url', wrap(async (req, res) => {
   const row = await db.one('INSERT INTO horse_videos(horse_id, kind, title, recorded_on, url) VALUES ($1,$2,$3,$4,$5) RETURNING *',
     [h.id, kind, String(b.title || v.title || '').trim().slice(0, 200) || null, recordedOn, v.url]);
   audit(req.user.id, 'Horse', h.id, 'VIDEO_ENLACE', { origen: v.source });
-  res.status(201).json(row);
+  const q = await videoWarnings(row.url);
+  if (q.info.seconds) await db.query('UPDATE horse_videos SET seconds=$2 WHERE id=$1', [row.id, Math.round(q.info.seconds)]);
+  res.status(201).json({ ...row, warnings: q.warnings });
 }));
 
 router.delete('/horses/:id/videos/:videoId', wrap(async (req, res) => {
@@ -196,7 +211,7 @@ router.post('/horses/:id/results', upload.single('document'), wrap(async (req, r
 }));
 
 // ─── Documentación: se sube, la IA la lee y propone los datos (el cliente revisa) ───
-const DOC_ROLES = ['EJEMPLAR', 'PADRE', 'MADRE'];
+const DOC_ROLES = ['EJEMPLAR', 'PADRE', 'MADRE', 'VETERINARIO'];
 const DOC_MIME = /^(image\/(jpeg|png|webp)|application\/pdf)$/;
 
 async function saveDocument(req, res, horseId) {
@@ -205,6 +220,18 @@ async function saveDocument(req, res, horseId) {
   if (!DOC_MIME.test(req.file.mimetype)) return res.status(400).json({ error: 'Formato no admitido: usa JPG, PNG, WEBP o PDF' });
   if (!DOC_ROLES.includes(role)) return res.status(400).json({ error: 'Tipo de documento no válido' });
   const name = DOCS.storePrivate(req.file);
+  if (role === 'VETERINARIO') {
+    if (!horseId) return res.status(400).json({ error: 'El informe veterinario se sube desde la ficha del caballo' });
+    const vx = await DOCS.extractVet({ name, mime: req.file.mimetype });
+    const vd = await db.one(
+      `INSERT INTO horse_documents(user_id, horse_id, role, file, mime, original_name, doc_type, extracted, ai_model, ai_error)
+       VALUES ($1,$2,'VETERINARIO',$3,$4,$5,$6,$7,$8,$9) RETURNING id, role, doc_type, created_at`,
+      [req.user.id, horseId, name, req.file.mimetype, req.file.originalname, vx.examType || 'informe veterinario',
+        vx.error ? null : JSON.stringify({ vet: { date: vx.date, vet: vx.vet, examType: vx.examType, findings: vx.findings || [], conclusion: vx.conclusion, overall: vx.overall }, notes: vx.notes }), vx.model || null, vx.error || null],
+    );
+    audit(req.user.id, 'Horse', horseId, 'INFORME_VETERINARIO', { examType: vx.examType });
+    return res.status(201).json({ id: vd.id, role: 'VETERINARIO', docType: vd.docType, vet: vx.error ? null : vx, aiError: vx.error || null });
+  }
   const ex = await DOCS.extract({ name, mime: req.file.mimetype, role });
   const d = await db.one(
     `INSERT INTO horse_documents(user_id, horse_id, role, file, mime, original_name, doc_type, extracted, ai_model, ai_error)

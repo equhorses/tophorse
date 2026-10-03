@@ -37,14 +37,14 @@ export default function YoungReportView({ report, disciplineName }) {
           {q ? (
             <>
               <p className="mt8"><strong style={{ fontSize: '2rem', fontFamily: 'var(--serif)' }}>Percentil {q.percentile}</strong></p>
-              <p className="small muted">Está por encima de {q.percentile} de cada 100 potros de su edad, según lo que se ve en el material (índice {q.index} sobre 10, rasgos vistos {q.coverage} %).</p>
+              <p className="small muted">Está por encima de {q.percentile} de cada 100 potros de su edad{q.geneticWeight ? `, combinando lo que se ve en el vídeo (percentil ${q.videoPercentile ?? '—'}) con la genética de sus padres (pesa un ${Math.round(q.geneticWeight * 100)} % a esta edad)` : ', según lo que se ve en el material'}{q.index != null ? ` · índice ${q.index} sobre 10, rasgos vistos ${q.coverage} %` : ''}.</p>
             </>
           ) : <p className="small muted mt8">El material no permite valorar los rasgos principales.</p>}
           <table className="table mt16"><tbody>{(r.traits || []).map((t) => (
             <tr key={t.key}>
               <td className="small t-name">{t.name}</td>
               <td style={{ width: 120 }}>{t.score != null ? <Bar value={t.score * 10} /> : <span className="small muted">no se ve</span>}</td>
-              <td className="small">{t.score != null ? `${t.score}/10` : ''}</td>
+              <td className="small" style={{ whiteSpace: 'nowrap' }}>{t.score != null ? `${t.score}/10` : ''}{t.delta ? <span className={t.delta > 0 ? 'chk OK' : 'chk DISTINTO'}> {t.delta > 0 ? '▲' : '▼'}{Math.abs(t.delta)}</span> : null}</td>
               <td className="small muted">{t.observation}</td>
             </tr>
           ))}</tbody></table>
@@ -73,6 +73,36 @@ export default function YoungReportView({ report, disciplineName }) {
         </div>
       </div>
 
+      <div className="grid g2" style={{ gap: 24, alignItems: 'start' }}>
+        <div>
+          <h4>Genética de los padres</h4>
+          {r.genetics ? (
+            <>
+              {r.genetics.parentMean != null && <p className="mt8"><strong>Media parental {r.genetics.parentMean}</strong> <span className="small muted">(base 100 = media de la raza; ±20 = una desviación)</span></p>}
+              <table className="table mt8"><tbody>
+                {r.genetics.sire && <tr><td className="small t-name">Padre</td><td className="small">{r.genetics.sire.value} {r.genetics.sire.scale === 'BASE100' ? '' : '(otra escala)'}</td><td className="small muted">{r.genetics.sire.source}{r.genetics.sire.reliability != null ? ` · fiabilidad ${r.genetics.sire.reliability} %` : ''}</td></tr>}
+                {r.genetics.damsire && <tr><td className="small t-name">Abuelo materno</td><td className="small">{r.genetics.damsire.value}</td><td className="small muted">{r.genetics.damsire.source}{r.genetics.damsire.reliability != null ? ` · fiabilidad ${r.genetics.damsire.reliability} %` : ''}</td></tr>}
+              </tbody></table>
+              {r.genetics.damProduce && <p className="small mt8"><strong>Producción de la madre:</strong> {r.genetics.damProduce}</p>}
+            </>
+          ) : <p className="small muted mt8">Sin índices de los padres todavía: el informe se apoya solo en el vídeo. Con los índices del padre y del abuelo materno la estimación es más fiable.</p>}
+        </div>
+        <div>
+          <h4>Cómo se ha valorado</h4>
+          <ul className="small" style={{ paddingLeft: 18, margin: '8px 0 0' }}>
+            <li>{r.readings > 1 ? `Doble lectura: ${r.readings} IAs por separado${r.discrepancies?.length ? `; discrepan en ${r.discrepancies.map((d) => d.name.toLowerCase()).join(', ')}` : ', sin discrepancias importantes'}` : 'Una sola lectura de IA'}</li>
+            {r.material && <li>Vídeo: {r.material.seconds ? `${Math.round(r.material.seconds)} s` : '—'}{r.material.height ? ` · ${r.material.width}×${r.material.height}` : ''}{r.material.fps ? ` · ${Math.round(r.material.fps)} fps` : ''}{r.material.ok ? ' · material correcto' : ''}</li>}
+            {(r.material?.issues || []).map((x) => <li key={x} className="chk DISTINTO">{x}</li>)}
+          </ul>
+          {r.evolution?.length > 0 && (
+            <>
+              <h4 className="mt16">Evolución</h4>
+              <ul className="small" style={{ paddingLeft: 18, margin: '8px 0 0' }}>{r.evolution.map((e) => <li key={e.date}>{fmtDate(e.date)}{e.stage ? ` · ${e.stage}` : ''} · percentil {e.percentile ?? '—'}</li>)}</ul>
+            </>
+          )}
+        </div>
+      </div>
+
       <div>
         <h4>Salud biomecánica observable</h4>
         <p className="small muted">Son señales para comentar con el veterinario, no un diagnóstico ni un apto de precompra.</p>
@@ -80,6 +110,13 @@ export default function YoungReportView({ report, disciplineName }) {
           const [l, c] = HEALTH[h.level] || [h.level, 'light']
           return <tr key={i}><td className="small t-name">{h.signal}</td><td><span className={`badge ${c}`}>{l}</span></td><td className="small muted">{h.observation}</td></tr>
         })}</tbody></table>
+        {r.vet && (
+          <div className="notice info small mt16">
+            <strong>Informe veterinario aportado</strong>{r.vet.examType ? ` · ${r.vet.examType}` : ''}{r.vet.date ? ` · ${fmtDate(r.vet.date)}` : ''}{r.vet.vet ? ` · ${r.vet.vet}` : ''}
+            {(r.vet.findings || []).length > 0 && <ul style={{ paddingLeft: 18, margin: '6px 0 0' }}>{r.vet.findings.map((f, i) => <li key={i}>{[f.area, f.finding, f.grade].filter(Boolean).join(' · ')}</li>)}</ul>}
+            {r.vet.conclusion && <p className="mt8">Conclusión del veterinario: {r.vet.conclusion}</p>}
+          </div>
+        )}
         <p className="small mt16"><strong>No se puede evaluar en vídeo:</strong></p>
         <ul className="small" style={{ paddingLeft: 18, margin: '6px 0 0' }}>{(r.notEvaluable || []).map((x) => <li key={x}>{x}</li>)}</ul>
       </div>

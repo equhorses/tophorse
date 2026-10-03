@@ -331,7 +331,7 @@ function VideosCard({ h, cat, notify, onChange }) {
     setBusy(true)
     try {
       const form = new FormData(); form.append('file', file); Object.entries(f).forEach(([k, v]) => form.append(k, v))
-      await api(`/my/horses/${h.id}/videos`, { method: 'POST', form }); notify('Vídeo subido'); setFile(null); setF({ ...f, title: '' }); onChange()
+      const r = await api(`/my/horses/${h.id}/videos`, { method: 'POST', form }); notify(r.warnings?.length ? `Vídeo subido, pero ${r.warnings.join('; ')}` : 'Vídeo subido'); setFile(null); setF({ ...f, title: '' }); onChange()
     } catch (x) { notify(x.message) }
     setBusy(false)
   }
@@ -339,7 +339,7 @@ function VideosCard({ h, cat, notify, onChange }) {
   const fromUrl = async () => {
     if (!link) return
     setBusy(true)
-    try { await api(`/my/horses/${h.id}/videos/from-url`, { method: 'POST', body: { url: link, ...f } }); notify('Vídeo añadido'); setLink(''); onChange() } catch (x) { notify(x.message) }
+    try { const r = await api(`/my/horses/${h.id}/videos/from-url`, { method: 'POST', body: { url: link, ...f } }); notify(r.warnings?.length ? `Vídeo añadido, pero ${r.warnings.join('; ')}` : 'Vídeo añadido'); setLink(''); onChange() } catch (x) { notify(x.message) }
     setBusy(false)
   }
   const del = async (v) => { if (!window.confirm('¿Borrar este vídeo?')) return; try { await api(`/my/horses/${h.id}/videos/${v.id}`, { method: 'DELETE' }); onChange() } catch (x) { notify(x.message) } }

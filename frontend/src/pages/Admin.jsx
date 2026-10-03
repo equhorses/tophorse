@@ -258,6 +258,7 @@ function HorseAdmin({ id, cat, isAdmin, notify, onBack }) {
       </div>
       <ResultsCard h={h} cat={cat} notify={notify} onChange={reload} base="/admin"
         adminActions={isAdmin ? (r) => <div className="row" style={{ gap: 6 }}>{!r.verified && <button className="btn btn-line btn-sm" onClick={() => verify(r)}>Verificar</button>}<button className="btn btn-line btn-sm" onClick={() => remove(r)}>Borrar</button></div> : null} />
+      <GeneticsAdmin h={h} isAdmin={isAdmin} notify={notify} onChange={reload} />
       <YoungReportsAdmin h={h} cat={cat} isAdmin={isAdmin} notify={notify} onChange={reload} />
       <VideosAdmin h={h} notify={notify} onChange={reload} />
       <AnalysesList data={h.analyses} />
@@ -282,6 +283,51 @@ function HorseAdmin({ id, cat, isAdmin, notify, onBack }) {
           </div>
         ))}
       </div>
+    </div>
+  )
+}
+
+// Datos genéticos de los padres (índices en base 100 ± 20 de FN, CDE, SWB…; otras escalas se muestran pero no se combinan)
+function GeneticsAdmin({ h, isAdmin, notify, onChange }) {
+  const pd = h.pedigreeData || {}
+  const blank = (x) => ({ value: x?.value ?? '', scale: x?.scale || 'BASE100', source: x?.source || '', reliability: x?.reliability ?? '' })
+  const [f, setF] = useState(null)
+  const start = () => setF({ sireIndex: blank(pd.sireIndex), damsireIndex: blank(pd.damsireIndex), damProduce: pd.damProduce || '', notes: pd.notes || '' })
+  const save = async () => { try { await api(`/admin/horses/${h.id}`, { method: 'PATCH', body: { pedigreeData: f } }); notify('Datos genéticos guardados'); setF(null); onChange() } catch (x) { notify(x.message) } }
+  const idx = (k, label) => (
+    <div className="field"><label>{label}</label>
+      <div className="row" style={{ gap: 6 }}>
+        <input className="input" style={{ width: 90 }} placeholder="Índice" value={f[k].value} onChange={(e) => setF({ ...f, [k]: { ...f[k], value: e.target.value } })} />
+        <select className="select" style={{ width: 130 }} value={f[k].scale} onChange={(e) => setF({ ...f, [k]: { ...f[k], scale: e.target.value } })}><option value="BASE100">Base 100 ± 20</option><option value="OTRA">Otra escala</option></select>
+        <input className="input" style={{ width: 90 }} placeholder="Fiab. %" value={f[k].reliability} onChange={(e) => setF({ ...f, [k]: { ...f[k], reliability: e.target.value } })} />
+        <input className="input" style={{ flex: 1 }} placeholder="Fuente (FN 2025 doma, blup.se…)" value={f[k].source} onChange={(e) => setF({ ...f, [k]: { ...f[k], source: e.target.value } })} />
+      </div>
+    </div>
+  )
+  const show = (x) => (x ? `${x.value}${x.scale === 'BASE100' ? '' : ' (otra escala)'}${x.reliability != null ? ` · fiab. ${x.reliability} %` : ''}${x.source ? ` · ${x.source}` : ''}` : '—')
+  return (
+    <div className="card">
+      <div className="row between" style={{ flexWrap: 'wrap', gap: 8 }}>
+        <div>
+          <h3>Genética de los padres</h3>
+          <p className="small muted mt8">Índice de su disciplina del padre ({h.sireName || '—'}) y del abuelo materno ({h.damsireName || '—'}). En potros es lo que más sube la fiabilidad. Se consultan gratis en FN (Zuchtwerte), blup.se (SWB), KWPN o Info chevaux (IFCE).</p>
+        </div>
+        {isAdmin && !f && <button className="btn btn-line btn-sm" onClick={start}>Editar</button>}
+      </div>
+      {!f ? (
+        <table className="table mt16"><tbody>
+          <tr><td className="small t-name">Padre</td><td className="small">{show(pd.sireIndex)}</td></tr>
+          <tr><td className="small t-name">Abuelo materno</td><td className="small">{show(pd.damsireIndex)}</td></tr>
+          <tr><td className="small t-name">Producción de la madre</td><td className="small">{pd.damProduce || '—'}</td></tr>
+        </tbody></table>
+      ) : (
+        <div className="form mt16">
+          {idx('sireIndex', `Índice del padre${h.sireName ? ` (${h.sireName})` : ''}`)}
+          {idx('damsireIndex', `Índice del abuelo materno${h.damsireName ? ` (${h.damsireName})` : ''}`)}
+          <div className="field"><label>Producción de la madre (hijos y su nivel)</label><input className="input" value={f.damProduce} onChange={(e) => setF({ ...f, damProduce: e.target.value })} /></div>
+          <div className="row" style={{ gap: 8 }}><button className="btn btn-gold btn-sm" onClick={save}>Guardar</button><button className="btn btn-line btn-sm" onClick={() => setF(null)}>Cancelar</button></div>
+        </div>
+      )}
     </div>
   )
 }

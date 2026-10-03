@@ -34,6 +34,7 @@ async function toImages(file, mime) {
 }
 
 const ROLE_TEXT = {
+  VETERINARIO: 'un INFORME VETERINARIO del ejemplar (radiografías, examen de precompra, endoscopia o similar)',
   EJEMPLAR: 'el documento del PROPIO EJEMPLAR que se da de alta',
   PADRE: 'el documento del PADRE del ejemplar',
   MADRE: 'el documento de la MADRE del ejemplar',
@@ -142,4 +143,27 @@ Responde SOLO con JSON: {"horseFound":true,"competition":null,"date":null,"count
   }
 }
 
-module.exports = { DOCS_DIR, storePrivate, privatePath, extract, extractResult, compare, FIELDS, RESULT_NUM };
+// Informe veterinario: hallazgos tal como los escribe el veterinario (nunca se interpretan ni se inventan)
+async function extractVet({ name, mime }) {
+  const list = providers();
+  if (!list.length) return { error: 'IA no configurada' };
+  const p = list[0];
+  const text = `Eres el asistente administrativo de TopHorses. Recibes un INFORME VETERINARIO de un caballo (radiografías, examen de precompra, endoscopia, ecografía…).
+Extrae SOLO lo que está escrito, sin interpretar ni añadir diagnósticos. Si un dato no aparece, null. No incluyas datos personales del propietario.
+- date: fecha del examen AAAA-MM-DD
+- vet: clínica o veterinario
+- examType: tipo de examen (radiografías, precompra, endoscopia, ecocardiografía, otro)
+- findings: lista de hallazgos, cada uno {area, finding, grade} con el grado o clase tal como venga (p. ej. "clase II", "grado 2/5", "sin hallazgos")
+- conclusion: conclusión literal del veterinario si la hay
+- overall: SIN_HALLAZGOS si el informe dice que no hay hallazgos relevantes; VIGILAR si hay hallazgos menores o a seguir; VETERINARIO si hay hallazgos importantes o recomendaciones de tratamiento; null si no se puede saber
+Responde SOLO con JSON: {"docType":"informe veterinario","date":null,"vet":null,"examType":null,"findings":[],"conclusion":null,"overall":null,"notes":""}`;
+  try {
+    const images = await toImages(privatePath(name), mime);
+    const body = await callModel(p, { model: p.model, messages: [{ role: 'user', content: [{ type: 'text', text }, ...images.map((url) => ({ type: 'image_url', image_url: { url } }))] }] });
+    return { model: p.model, ...parseJson(body.choices?.[0]?.message?.content) };
+  } catch (e) {
+    return { model: p.model, error: e.message };
+  }
+}
+
+module.exports = { extractVet, DOCS_DIR, storePrivate, privatePath, extract, extractResult, compare, FIELDS, RESULT_NUM };
