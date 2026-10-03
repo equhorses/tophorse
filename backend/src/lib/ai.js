@@ -133,6 +133,16 @@ async function runAnalysis({ prompt, photos = [], video = null, uploadDir, maxPr
   }));
   const runs = settled.filter((s) => s.status === 'fulfilled').map((s) => s.value);
   const errors = settled.filter((s) => s.status === 'rejected').map((s) => s.reason.message);
+  // Si las IAs elegidas fallan (clave caducada, caída…), se prueba con las demás configuradas, de una en una
+  if (!runs.length) {
+    for (const p of providers().slice(list.length)) {
+      try {
+        const body = await callModel(p, { model: p.model, messages: [{ role: 'user', content }] });
+        runs.push({ model: p.model, result: parseJson(body.choices?.[0]?.message?.content), usage: body.usage || null });
+        break;
+      } catch (e) { errors.push(e.message); }
+    }
+  }
   if (!runs.length) throw Object.assign(new Error(errors.join(' | ')), { status: 502 });
   return { runs, errors, media };
 }

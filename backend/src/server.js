@@ -68,7 +68,9 @@ require('./lib/bootstrap')()
         const st = await data.crawlerSettings()
         if (!st.crawler_enabled) return
         const last = await db.one('SELECT started_at FROM crawler_runs ORDER BY started_at DESC LIMIT 1')
-        if (!last || Date.now() - new Date(last.startedAt).getTime() > st.crawler_every_hours * 3600e3) await data.startCrawl('PROGRAMADO')
+        // También si quedaron vídeos sin cribar (p. ej. la IA falló en la pasada anterior)
+        const pend = await db.one("SELECT count(*)::int AS n FROM video_candidates WHERE status='NUEVO' AND triage IS NULL")
+        if (!last || pend.n > 0 || Date.now() - new Date(last.startedAt).getTime() > st.crawler_every_hours * 3600e3) await data.startCrawl('PROGRAMADO')
       } catch (e) { console.error('programador del rastreador', e.message) }
     }, 2 * 60 * 1000)
   })

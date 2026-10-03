@@ -72,8 +72,8 @@ async function crawlSite(startUrl, maxPages = 25) {
 
 // Criba con IA por texto (barata): relevancia, disciplina, etapa, subasta, lote, caballo
 async function triage(cands) {
-  const p = providers()[0]
-  if (!p || !cands.length) return []
+  const provs = providers()
+  if (!provs.length || !cands.length) return []
   const list = cands.map((c, i) => `${i}. título: ${c.title || '—'} | canal: ${c.channel || '—'} | página: ${c.pageUrl || '—'} | búsqueda: ${c.query || '—'} | descripción: ${(c.description || '').slice(0, 200)}`).join('\n')
   const text = `Eres el clasificador de vídeos de TopHorses. Decide qué vídeos sirven para estudiar caballos JÓVENES o en venta (potros, yearlings, breeze-ups de 2 años, caballos jóvenes en libertad o en su primera monta, lotes de subastas) y en qué disciplina.
 Disciplinas: CARRERAS_PSI, CARRERAS_ARABE, CARRERAS_QH, RAID, REINING, DOMA_CLASICA, SALTO, COMPLETO. Etapas: ${STAGES.join(', ')}.
@@ -81,8 +81,15 @@ Relevancia 0-100: 90+ vídeo individual de un caballo concreto (lote, breeze, pr
 Lee SOLO lo que pone; si no se sabe, null.
 ${list}
 Responde SOLO con JSON: {"items":[{"i":0,"relevance":0,"discipline":null,"stage":null,"saleName":null,"lot":null,"horseName":null,"reason":"breve"}]}`
-  const body = await callModel(p, { model: p.model, messages: [{ role: 'user', content: [{ type: 'text', text }] }] })
-  return parseJson(body.choices?.[0]?.message?.content).items || []
+  // Usa la primera IA que responda (si la principal falla, la secundaria)
+  const errors = []
+  for (const p of provs) {
+    try {
+      const body = await callModel(p, { model: p.model, messages: [{ role: 'user', content: [{ type: 'text', text }] }] })
+      return parseJson(body.choices?.[0]?.message?.content).items || []
+    } catch (e) { errors.push(e.message) }
+  }
+  throw new Error(errors.join(' | '))
 }
 
 async function runCrawler(db, { trigger = 'MANUAL', settings }) {
@@ -161,4 +168,4 @@ async function acceptCandidate(db, c, { as = 'lot', horseId, kind }) {
   return db.one("UPDATE video_candidates SET status='DESCARGADO', video_file=$2, sale_lot_id=$3, updated_at=now() WHERE id=$1 RETURNING *", [c.id, v.url, lot.id])
 }
 
-module.exports = { runCrawler, acceptCandidate, DEFAULT_QUERIES, videoLinks, crawlSite, searchYoutube }
+module.exports = { runCrawler, acceptCandidate, DEFAULT_QUERIES, videoLinks, crawlSite, searchYoutube, triage }
