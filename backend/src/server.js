@@ -62,5 +62,14 @@ require('./lib/bootstrap')()
         if (!last || Date.now() - new Date(last.startedAt).getTime() > st.crawler_every_hours * 3600e3) await data.startCrawl('PROGRAMADO')
       } catch (e) { console.error('programador del rastreador', e.message) }
     }, 60 * 60 * 1000)
+    // Primera comprobación a los 2 minutos de arrancar (para no esperar una hora tras activarlo)
+    setTimeout(async () => {
+      try {
+        const st = await data.crawlerSettings()
+        if (!st.crawler_enabled) return
+        const last = await db.one('SELECT started_at FROM crawler_runs ORDER BY started_at DESC LIMIT 1')
+        if (!last || Date.now() - new Date(last.startedAt).getTime() > st.crawler_every_hours * 3600e3) await data.startCrawl('PROGRAMADO')
+      } catch (e) { console.error('programador del rastreador', e.message) }
+    }, 2 * 60 * 1000)
   })
   .catch((e) => { console.error('Error al arrancar:', e); process.exit(1); });

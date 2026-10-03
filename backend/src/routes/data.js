@@ -340,7 +340,14 @@ const crawler = require('../lib/crawler')
 let crawling = false
 async function crawlerSettings() {
   const rows = await db.query("SELECT key, value FROM settings WHERE key LIKE 'crawler_%'")
-  return { ...require('../lib/crawlerDefaults').CRAWLER_DEFAULTS, ...Object.fromEntries(rows.map((r) => [r.key, r.value])) }
+  const st = { ...require('../lib/crawlerDefaults').CRAWLER_DEFAULTS, ...Object.fromEntries(rows.map((r) => [r.key, r.value])) }
+  // Variables de Railway (mandan sobre el panel): CRAWLER_ENABLED, CRAWLER_EVERY_HOURS, CRAWLER_AUTO_DOWNLOAD, CRAWLER_MAX_AUTO
+  const env = process.env
+  if (env.CRAWLER_ENABLED) st.crawler_enabled = env.CRAWLER_ENABLED === 'true'
+  if (Number(env.CRAWLER_EVERY_HOURS) > 0) st.crawler_every_hours = Number(env.CRAWLER_EVERY_HOURS)
+  if (env.CRAWLER_AUTO_DOWNLOAD) st.crawler_auto_download = env.CRAWLER_AUTO_DOWNLOAD === 'true'
+  if (Number(env.CRAWLER_MAX_AUTO) >= 0 && env.CRAWLER_MAX_AUTO) st.crawler_max_auto = Number(env.CRAWLER_MAX_AUTO)
+  return st
 }
 async function startCrawl(trigger) {
   if (crawling) return false
