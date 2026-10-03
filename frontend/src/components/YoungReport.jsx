@@ -24,6 +24,7 @@ export default function YoungReportView({ report, disciplineName }) {
         <div>
           <span className="eyebrow">Informe de potro · {disciplineName}</span>
           <p className="small muted">{fmtDate(report.publishedAt || report.createdAt)} · versión {r.version} · confianza {String(r.confidence || '').toLowerCase()}</p>
+          {r.stage && <p className="small mt8"><strong>Etapa: {r.stage.name}</strong> · fiabilidad esperada a esta edad: {String(r.stage.reliability).toLowerCase()}. <span className="muted">{r.stage.note}</span></p>}
         </div>
         <span className={`badge ${hCls}`}>Salud: {hLabel}</span>
       </div>

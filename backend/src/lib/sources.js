@@ -64,9 +64,10 @@ async function seedSources(db) {
   for (const s of SOURCES) {
     // eslint-disable-next-line no-await-in-loop
     await db.query(
-      `INSERT INTO data_sources(key, name, url, kind, disciplines, region, access, has_video, has_prices, block, notes)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) ON CONFLICT (key) DO NOTHING`,
-      [s.key, s.name, s.url || null, s.kind, s.disciplines || ALL, s.region || null, s.access, Boolean(s.has_video), Boolean(s.has_prices), s.block || 3, s.notes || null],
+      `INSERT INTO data_sources(key, name, url, kind, disciplines, region, access, has_video, has_prices, block, notes, crawl_urls)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) ON CONFLICT (key) DO NOTHING`,
+      [s.key, s.name, s.url || null, s.kind, s.disciplines || ALL, s.region || null, s.access, Boolean(s.has_video), Boolean(s.has_prices), s.block || 3, s.notes || null,
+        ['SUBASTA', 'VIDEO'].includes(s.kind) && s.url ? [s.url] : []],
     )
   }
 }

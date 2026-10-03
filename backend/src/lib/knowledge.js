@@ -124,6 +124,7 @@ const YOUNG_TRAITS = {
   capacidad_salto: 'Capacidad y elasticidad sobre el salto',
   velocidad: 'Mecánica de galope rápido (tranco, frecuencia)',
   actitud: 'Actitud y reacción',
+  montabilidad: 'Montabilidad y aceptación del jinete',
 }
 
 const YOUNG = {
@@ -135,6 +136,47 @@ const YOUNG = {
   DOMA_CLASICA: { weights: { tipo: 1, conformacion: 1, aplomos: 1, paso: 2, trote: 3, galope: 3, equilibrio: 2, actitud: 1 }, levels: ['Compite', 'Nivel San Jorge', 'Gran Premio'] },
   SALTO: { weights: { conformacion: 1, aplomos: 1, galope: 2, equilibrio: 1, tecnica_salto: 3, capacidad_salto: 3, actitud: 1 }, levels: ['Compite', '1,40 m', '1,60 m'] },
   COMPLETO: { weights: { conformacion: 1, aplomos: 2, galope: 3, equilibrio: 1, tecnica_salto: 2, capacidad_salto: 2, actitud: 1 }, levels: ['Compite', 'CCI3*', 'CCI4* o superior'] },
+}
+
+// Etapas por edad: qué material pedir, qué rasgos pesan y cuánta fiabilidad cabe esperar.
+// La fiabilidad sube con la edad: las notas de potro predicen poco; las pruebas de 3–4 años, mucho más (docs/Studbooks…).
+const RACING = ['CARRERAS_PSI', 'CARRERAS_ARABE', 'CARRERAS_QH']
+const JUMPING = ['SALTO', 'COMPLETO']
+
+function stagesFor(key) {
+  if (RACING.includes(key)) {
+    return [
+      { key: 'POTRO', name: 'Potro (hasta 12 meses)', from: 0, reliability: 'BAJA', material: 'Fotos de las cinco vistas con el potro cuadrado y vídeo al paso y al trote a la mano, de lado y de frente/espaldas.',
+        weights: { conformacion: 3, aplomos: 3, paso: 2, tipo: 1, actitud: 1 }, note: 'A esta edad se ve sobre todo conformación, aplomos y paso; el potencial de velocidad aún no se puede medir.' },
+      { key: 'YEARLING', name: 'Yearling (12–24 meses)', from: 12, reliability: 'BAJA-MEDIA', material: 'Fotos de las cinco vistas y vídeo de paseo como el de las subastas de yearlings (de lado y de frente/espaldas); si hay, galope en libertad.',
+        weights: { conformacion: 3, aplomos: 3, paso: 2, galope: 1, actitud: 1 }, note: 'Es la edad de las ventas de yearlings: el mercado paga conformación y paso, que predicen poco el rendimiento; el informe lo separa.' },
+      { key: 'DOS_ANOS', name: 'Dos años en entrenamiento / breeze', from: 24, reliability: 'MEDIA', material: 'Vídeo de lado de un trabajo o breeze a galope rápido, cámara fija o siguiendo sin zoom, mejor con postes de distancia visibles; tiempo si lo hay.',
+        weights: { velocidad: 4, galope: 3, equilibrio: 1, aplomos: 1, conformacion: 1, actitud: 1 }, note: 'Se mide la mecánica del galope rápido (frecuencia y longitud de tranco). El tiempo de breeze, por sí solo, predice poco quién gana stakes.' },
+    ]
+  }
+  const jump = JUMPING.includes(key)
+  const ridden = key === 'REINING' ? 24 : 30
+  return [
+    { key: 'POTRO', name: 'Potro (hasta 12 meses)', from: 0, reliability: 'BAJA', material: 'Fotos de las cinco vistas y vídeo suelto o a la mano a los tres aires, de lado, en pista llana.',
+      weights: { tipo: 1, conformacion: 2, aplomos: 2, paso: 2, trote: 2, galope: 2, equilibrio: 2 }, note: 'Las notas de potro anticipan las de los 3 años en doma, pero poco el salto; los rangos son amplios y conviene reevaluar al año y a los 3 años.' },
+    { key: 'JOVEN', name: `Joven sin montar (12–${ridden} meses)`, from: 12, reliability: 'BAJA-MEDIA',
+      material: jump ? 'Vídeo en libertad a los tres aires y salto en libertad (varias pasadas, de lado al obstáculo).' : 'Vídeo en libertad o a la cuerda a los tres aires, de lado, en pista llana.',
+      weights: jump ? { conformacion: 1, aplomos: 1, galope: 2, equilibrio: 1, tecnica_salto: 3, capacidad_salto: 3, actitud: 1 } : { conformacion: 1, aplomos: 2, paso: 2, trote: 3, galope: 3, equilibrio: 2, actitud: 1 },
+      note: jump ? 'El salto en libertad a los 2–3 años es de los mejores indicadores tempranos en salto.' : 'Los aires en libertad orientan; el equilibrio y la montabilidad se verán en la primera monta.' },
+    { key: 'PRIMERA_MONTA', name: `Primera monta (desde ${Math.round(ridden / 12 * 10) / 10} años)`, from: ridden, reliability: 'MEDIA',
+      material: key === 'REINING' ? 'Vídeo montado de lado: galope en círculos, primeras paradas y cambios; mejor con marcas en la pista.'
+        : jump ? 'Vídeo montado a los tres aires de lado y, si se puede, salto en libertad o pequeños saltos montados.' : 'Vídeo montado de lado a los tres aires en pista llana, sin zoom, con 20 o más trancos por aire.',
+      weights: key === 'REINING' ? { galope: 3, equilibrio: 3, montabilidad: 2, aplomos: 1, actitud: 2 }
+        : jump ? { galope: 2, equilibrio: 2, montabilidad: 2, tecnica_salto: 2, capacidad_salto: 2, aplomos: 1, actitud: 1 }
+          : key === 'RAID' ? { trote: 3, paso: 1, galope: 1, equilibrio: 1, montabilidad: 1, aplomos: 3, actitud: 1 }
+            : { paso: 2, trote: 3, galope: 3, equilibrio: 2, montabilidad: 2, aplomos: 1, actitud: 1 },
+      note: 'Desde los 3–4 años las pruebas de caballo joven predicen mucho mejor (correlación genética con la competición de 0,47–0,89 según disciplina).' },
+  ]
+}
+
+function stageFor(key, ageMonths) {
+  const list = stagesFor(key)
+  return [...list].reverse().find((st) => ageMonths >= st.from) || list[0]
 }
 
 // Tasas base por defecto: solo las que tienen fuente. El resto queda vacío hasta tener datos de convenio
@@ -162,3 +204,5 @@ module.exports.YOUNG_TRAITS = YOUNG_TRAITS
 module.exports.YOUNG = YOUNG
 module.exports.DEFAULT_BASE_RATES = DEFAULT_BASE_RATES
 module.exports.HEALTH = HEALTH
+module.exports.stagesFor = stagesFor
+module.exports.stageFor = stageFor

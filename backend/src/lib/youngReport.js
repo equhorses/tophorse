@@ -1,18 +1,19 @@
 // Informe de potro: la IA puntúa rasgos visibles y señales de salud; el resto se calcula con reglas a la vista.
 // Todo lo que no está calibrado con datos de seguimiento se marca como PROVISIONAL.
 const ai = require('./ai')
-const { YOUNG_TRAITS, YOUNG, HEALTH, FILMING, DISCIPLINE_KNOWLEDGE, GENERAL } = require('./knowledge')
+const { YOUNG_TRAITS, YOUNG, HEALTH, FILMING, DISCIPLINE_KNOWLEDGE, GENERAL, stageFor } = require('./knowledge')
 const { discipline: disciplineOf } = require('./disciplines')
 
-const VERSION = 'potro-0.1'
+const VERSION = 'potro-0.2'
 
-function prompt({ disciplineKey, subject, ageMonths }) {
+function prompt({ disciplineKey, subject, ageMonths, stage }) {
   const d = disciplineOf(disciplineKey)
-  const y = YOUNG[disciplineKey]
-  const traits = Object.keys(y.weights)
+  const traits = Object.keys(stage.weights)
   const film = FILMING[DISCIPLINE_KNOWLEDGE[disciplineKey]?.video.filming || 'AIRES']
   return `Eres el analista de potros de TopHorses. Valoras un caballo joven SIN historial deportivo, orientado a ${d ? d.name : 'deporte'}, a partir de fotos y fotogramas de vídeo.
-Caballo: ${subject}. Edad: ${ageMonths} meses. Exígele lo que corresponde a su edad (un potro no tiene el equilibrio ni la musculatura de un adulto).
+Caballo: ${subject}. Edad: ${ageMonths} meses. Etapa: ${stage.name}. Exígele lo que corresponde a su edad y etapa (un potro no tiene el equilibrio ni la musculatura de un adulto; un caballo en primera monta aún no tiene la reunión de uno hecho).
+Material esperado en esta etapa: ${stage.material}
+Contexto: ${stage.note}
 
 PRINCIPIOS: ${GENERAL.principles.join(' ')}
 Protocolo de grabación válido para medir: ${film.view}; ${film.fps}; ${film.calibration}.
@@ -84,12 +85,13 @@ async function marketValue(db, { disciplineKey, ageYears, breed }) {
 async function generate({ db, horse, photos, video, uploadDir, baseRates }) {
   const ageMonths = Math.max(0, Math.round((Date.now() - new Date(horse.birthDate).getTime()) / (30.44 * 864e5)))
   const subject = `${horse.name}, ${horse.sex.toLowerCase()}, raza ${horse.breed}${horse.sireName ? `, por ${horse.sireName}` : ''}${horse.damName ? ` y ${horse.damName}` : ''}${horse.damsireName ? ` (${horse.damsireName})` : ''}`
-  const out = await ai.runAnalysis({ prompt: prompt({ disciplineKey: horse.discipline, subject, ageMonths }), photos, video, uploadDir, maxProviders: 1 })
+  const stage = stageFor(horse.discipline, ageMonths)
+  const out = await ai.runAnalysis({ prompt: prompt({ disciplineKey: horse.discipline, subject, ageMonths, stage }), photos, video, uploadDir, maxProviders: 1 })
   const run = out.runs[0]
   const r = run.result || {}
   const y = YOUNG[horse.discipline]
-  const traits = (r.traits || []).map((t) => ({ ...t, name: YOUNG_TRAITS[t.key] || t.key, weight: y.weights[t.key] || 0 })).filter((t) => t.weight)
-  const q = qualityIndex(traits, y.weights)
+  const traits = (r.traits || []).map((t) => ({ ...t, name: YOUNG_TRAITS[t.key] || t.key, weight: stage.weights[t.key] || 0 })).filter((t) => t.weight)
+  const q = qualityIndex(traits, stage.weights)
   const levels = y.levels.map((level) => (baseRates || []).find((b) => b.level === level) || { level, rate: null, source: null })
   const health = (r.health || []).filter((h) => HEALTH.levels[h.level])
   const ageYears = Math.floor(ageMonths / 12)
@@ -97,12 +99,13 @@ async function generate({ db, horse, photos, video, uploadDir, baseRates }) {
     model: run.model,
     inputs: { photos: photos.map((p) => p.view), video: video ? video.url : null, ageMonths, media: out.media },
     result: {
-      version: VERSION, filmingOk: r.filmingOk === true, filmingNotes: r.filmingNotes || '', summary: r.summary || '', disciplineFit: r.disciplineFit || '',
+      version: VERSION, stage: { key: stage.key, name: stage.name, reliability: stage.reliability, material: stage.material, note: stage.note }, filmingOk: r.filmingOk === true, filmingNotes: r.filmingNotes || '', summary: r.summary || '', disciplineFit: r.disciplineFit || '',
       traits, quality: q, probabilities: probabilities(levels, q),
       health, healthOverall: health.some((h) => h.level === 'VETERINARIO') ? 'VETERINARIO' : health.some((h) => h.level === 'VIGILAR') ? 'VIGILAR' : 'SIN_HALLAZGOS',
       notEvaluable: HEALTH.notEvaluable,
       market: await marketValue(db, { disciplineKey: horse.discipline, ageYears, breed: horse.breed }),
-      confidence: !q ? 'BAJA' : q.coverage >= 80 && r.filmingOk ? 'MEDIA' : 'BAJA',
+      // La confianza nunca supera la fiabilidad de la etapa
+      confidence: !q || !r.filmingOk || q.coverage < 80 ? 'BAJA' : stage.reliability === 'MEDIA' ? 'MEDIA' : 'BAJA',
       provisional: ['Percentil: escala provisional (5 = media de su edad) hasta calibrar con potros seguidos en el tiempo',
         'Probabilidades: tasa base × ajuste por percentil, modelo no calibrado prospectivamente', 'Valor futuro a 4–6 años: pendiente de reunir precios por nivel'],
     },

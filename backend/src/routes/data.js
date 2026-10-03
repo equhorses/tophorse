@@ -335,4 +335,64 @@ router.patch('/young-reports/:id', requireRole('ADMIN'), wrap(async (req, res) =
   res.json(r)
 }))
 
+// ─── Rastreador de vídeos ───
+const crawler = require('../lib/crawler')
+let crawling = false
+async function crawlerSettings() {
+  const rows = await db.query("SELECT key, value FROM settings WHERE key LIKE 'crawler_%'")
+  return { ...require('../lib/crawlerDefaults').CRAWLER_DEFAULTS, ...Object.fromEntries(rows.map((r) => [r.key, r.value])) }
+}
+async function startCrawl(trigger) {
+  if (crawling) return false
+  crawling = true
+  crawler.runCrawler(db, { trigger, settings: await crawlerSettings() }).catch((e) => console.error('rastreador', e)).finally(() => { crawling = false })
+  return true
+}
+router.startCrawl = startCrawl
+router.crawlerSettings = crawlerSettings
+
+router.post('/crawler/run', requireRole('ADMIN'), wrap(async (req, res) => {
+  if (!(await startCrawl('MANUAL'))) return res.status(409).json({ error: 'Ya hay una búsqueda en marcha' })
+  audit(req.user.id, 'Crawler', 'run', 'LANZAR', {})
+  res.json({ ok: true, message: 'Búsqueda en marcha: tarda unos minutos. Recarga para ver los resultados.' })
+}))
+
+router.get('/crawler/runs', wrap(async (req, res) => {
+  res.json({ running: crawling, runs: await db.query('SELECT * FROM crawler_runs ORDER BY started_at DESC LIMIT 10') })
+}))
+
+router.get('/crawler/candidates', wrap(async (req, res) => {
+  const { status = 'RELEVANTE', discipline: disc = '', q = '' } = req.query
+  const params = [status]; const w = ['status=$1']
+  if (disc) { params.push(disc); w.push(`discipline=$${params.length}`) }
+  if (q) { params.push(`%${q}%`); w.push(`(title ILIKE $${params.length} OR channel ILIKE $${params.length} OR horse_name ILIKE $${params.length} OR sale_name ILIKE $${params.length})`) }
+  const [rows, counts] = await Promise.all([
+    db.query(`SELECT * FROM video_candidates WHERE ${w.join(' AND ')} ORDER BY relevance DESC NULLS LAST, found_at DESC LIMIT 300`, params),
+    db.query('SELECT status, COUNT(*)::int AS n FROM video_candidates GROUP BY status'),
+  ])
+  res.json({ items: rows, counts: Object.fromEntries(counts.map((c) => [c.status, c.n])) })
+}))
+
+router.patch('/crawler/candidates/:id', requireRole('ADMIN'), wrap(async (req, res) => {
+  const st = req.body?.status
+  if (!['NUEVO', 'RELEVANTE', 'DESCARTADO'].includes(st)) return res.status(400).json({ error: 'Estado no válido' })
+  const c = await db.one('UPDATE video_candidates SET status=$2, updated_at=now() WHERE id::text=$1 RETURNING *', [req.params.id, st])
+  if (!c) return res.status(404).json({ error: 'Vídeo no encontrado' })
+  res.json(c)
+}))
+
+router.post('/crawler/candidates/:id/accept', requireRole('ADMIN'), wrap(async (req, res) => {
+  const c = await db.one('SELECT * FROM video_candidates WHERE id::text=$1', [req.params.id])
+  if (!c) return res.status(404).json({ error: 'Vídeo no encontrado' })
+  const b = req.body || {}
+  try {
+    const out = await crawler.acceptCandidate(db, c, { as: b.as === 'horse' ? 'horse' : 'lot', horseId: b.horseId, kind: b.kind })
+    audit(req.user.id, 'VideoCandidate', c.id, 'ACEPTAR', { como: b.as || 'lot', url: c.url })
+    res.json(out)
+  } catch (e) {
+    await db.query("UPDATE video_candidates SET status='ERROR', error=$2, updated_at=now() WHERE id=$1", [c.id, e.message])
+    throw e
+  }
+}))
+
 module.exports = router

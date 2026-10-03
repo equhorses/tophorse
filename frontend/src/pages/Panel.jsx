@@ -320,6 +320,9 @@ export function ResultsCard({ h, cat, notify, onChange, base, adminActions }) {
 function VideosCard({ h, cat, notify, onChange }) {
   const kn = cat?.knowledge?.disciplines?.[h.discipline]
   const film = kn && cat.knowledge.filming[kn.video.filming]
+  const months = Math.floor((Date.now() - new Date(h.birthDate).getTime()) / (30.44 * 864e5))
+  const stages = cat?.knowledge?.stages?.[h.discipline] || []
+  const stage = [...stages].reverse().find((st) => months >= st.from)
   const [f, setF] = useState({ kind: 'ENTRENAMIENTO', title: '', recordedOn: '' })
   const [file, setFile] = useState(null)
   const [busy, setBusy] = useState(false)
@@ -344,6 +347,7 @@ function VideosCard({ h, cat, notify, onChange }) {
     <div className="card">
       <h3>Vídeos ({h.videos.length})</h3>
       <p className="small muted mt8">Entrenamiento, competición, subasta, a la mano o en libertad. MP4, MOV o WEBM.</p>
+      {stage && months < 48 && <p className="notice small mt8"><strong>Qué vídeo enviar ahora ({stage.name}):</strong> {stage.material}</p>}
       {film && <p className="notice info small mt8"><strong>Para que el vídeo sirva para medir:</strong> {film.view} · {film.fps} · {film.calibration}. Si no se puede, súbelo igual: se analizará de forma descriptiva.</p>}
       {h.videos.map((v) => (
         <p key={v.id} className="mt8">

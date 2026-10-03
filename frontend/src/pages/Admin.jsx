@@ -6,7 +6,7 @@ import { LinkButton, Toast } from '../components/ui.jsx'
 import { DOC_ROLES, HORSE_STATUS, REQ_STATUS, ROLE_LABELS, SEXES, VIDEO_KINDS, fmtDate } from '../data/content.js'
 import { breedName, disciplineName, useCatalog } from '../data/catalog.js'
 import { HorseForm, ResultsCard, resultFacts } from './Panel.jsx'
-import { AnalysesList, BaseRatesAdmin, ImportAdmin, SalesAdmin, SourcesAdmin } from './AdminData.jsx'
+import { AnalysesList, BaseRatesAdmin, CrawlerAdmin, ImportAdmin, SalesAdmin, SourcesAdmin } from './AdminData.jsx'
 import YoungReportView from '../components/YoungReport.jsx'
 
 const eurs = (n) => `${Number(n || 0).toLocaleString('es-ES', { minimumFractionDigits: 0, maximumFractionDigits: 2 })} €`
@@ -36,7 +36,7 @@ export default function Admin() {
   if (!user) return <Navigate to="/acceder?next=/admin" replace />
   if (!isStaff) return <Navigate to="/panel" replace />
   const openHorse = (id) => { setTab('caballos'); setHorseId(id) }
-  const tabs = [['inicio', 'Inicio'], ['solicitudes', 'Solicitudes'], ['caballos', 'Caballos'], ['resultados', 'Resultados'], ['subastas', 'Subastas'], ['fuentes', 'Fuentes'],
+  const tabs = [['inicio', 'Inicio'], ['solicitudes', 'Solicitudes'], ['caballos', 'Caballos'], ['resultados', 'Resultados'], ['rastreador', 'Rastreador'], ['subastas', 'Subastas'], ['fuentes', 'Fuentes'],
     ...(isAdmin ? [['importar', 'Importar'], ['usuarios', 'Usuarios'], ['pagos', 'Pagos'], ['auditoria', 'Auditoría']] : [])]
   return (
     <div className="app-shell">
@@ -56,6 +56,7 @@ export default function Admin() {
           ? <HorseAdmin id={horseId} cat={cat} isAdmin={isAdmin} notify={setToast} onBack={() => setHorseId(null)} />
           : <HorsesAdmin cat={cat} isAdmin={isAdmin} notify={setToast} open={setHorseId} />)}
         {tab === 'resultados' && <ResultsAdmin cat={cat} isAdmin={isAdmin} notify={setToast} openHorse={openHorse} />}
+        {tab === 'rastreador' && <CrawlerAdmin cat={cat} isAdmin={isAdmin} notify={setToast} openHorse={openHorse} />}
         {tab === 'subastas' && <SalesAdmin cat={cat} isAdmin={isAdmin} notify={setToast} openHorse={openHorse} />}
         {tab === 'fuentes' && <><BaseRatesAdmin cat={cat} isAdmin={isAdmin} notify={setToast} /><div className="mt32" /><SourcesAdmin cat={cat} isAdmin={isAdmin} notify={setToast} /></>}
         {tab === 'importar' && <ImportAdmin notify={setToast} />}

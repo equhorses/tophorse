@@ -82,4 +82,4 @@ async function fetchVideo(rawUrl) {
   return { url: `/uploads/${r.file}`, title: r.title || null, source: url }
 }
 
-module.exports = { fetchVideo }
+module.exports = { fetchVideo, ensureYtDlp }

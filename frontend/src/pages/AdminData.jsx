@@ -339,3 +339,105 @@ export function ImportAdmin({ notify }) {
     </div>
   )
 }
+
+// ─── RASTREADOR DE VÍDEOS ───
+const CAND_STATUS = { RELEVANTE: 'Relevantes', NUEVO: 'Por revisar', DESCARGADO: 'Descargados', DESCARTADO: 'Descartados', ERROR: 'Con error' }
+const STAGE_TXT = { POTRO: 'Potro', YEARLING: 'Yearling', DOS_ANOS: '2 años / breeze', JOVEN: 'Joven sin montar', PRIMERA_MONTA: 'Primera monta', COMPETICION: 'Competición', OTRO: 'Otro' }
+
+export function CrawlerAdmin({ cat, isAdmin, notify, openHorse }) {
+  const [status, setStatus] = useState('RELEVANTE')
+  const [disc, setDisc] = useState('')
+  const [q, setQ] = useState('')
+  const cands = useFetch(`/admin/crawler/candidates?status=${status}&discipline=${disc}&q=${encodeURIComponent(q)}`)
+  const runs = useFetch('/admin/crawler/runs')
+  const settings = useFetch('/admin/settings')
+  const [cfg, setCfg] = useState(null)
+  const [busy, setBusy] = useState('')
+  const s = settings.data
+  const startEdit = () => setCfg({ ...s, queriesText: (s.crawler_queries || []).map((x) => `${x.discipline} | ${x.q}`).join('\n') })
+  const save = async () => {
+    const queries = cfg.queriesText.split('\n').map((l) => l.split('|').map((x) => x.trim())).filter(([d, qq]) => d && qq).map(([discipline, qq]) => ({ discipline, q: qq }))
+    const body = {
+      crawler_enabled: Boolean(cfg.crawler_enabled), crawler_every_hours: Math.max(1, Number(cfg.crawler_every_hours) || 24), crawler_auto_download: Boolean(cfg.crawler_auto_download),
+      crawler_max_auto: Math.max(0, Number(cfg.crawler_max_auto) || 0), crawler_min_relevance: Math.min(100, Math.max(0, Number(cfg.crawler_min_relevance) || 70)), crawler_queries: queries,
+    }
+    try { await api('/admin/settings', { method: 'PATCH', body }); notify('Rastreador guardado'); setCfg(null); settings.reload() } catch (x) { notify(x.message) }
+  }
+  const runNow = async () => { try { const r = await api('/admin/crawler/run', { method: 'POST' }); notify(r.message); runs.reload() } catch (x) { notify(x.message) } }
+  const mark = async (c, st) => { try { await api(`/admin/crawler/candidates/${c.id}`, { method: 'PATCH', body: { status: st } }); cands.reload() } catch (x) { notify(x.message) } }
+  const accept = async (c, as) => {
+    let horseId
+    if (as === 'horse') {
+      const name = window.prompt('Nombre o referencia TH- del caballo al que pertenece el vídeo', c.horseName || '')
+      if (!name) return
+      const list = await api(`/admin/horses?q=${encodeURIComponent(name)}`)
+      if (!list.length) return notify('No hay ningún caballo con ese nombre')
+      horseId = list[0].id
+    }
+    setBusy(c.id)
+    try { await api(`/admin/crawler/candidates/${c.id}/accept`, { method: 'POST', body: { as, horseId } }); notify(as === 'horse' ? 'Vídeo añadido al caballo' : 'Vídeo descargado y archivado como lote'); cands.reload() } catch (x) { notify(x.message); cands.reload() }
+    setBusy('')
+  }
+  const last = runs.data?.runs?.[0]
+  return (
+    <div className="stack">
+      <div className="card">
+        <div className="row between" style={{ flexWrap: 'wrap', gap: 8 }}>
+          <div>
+            <h3>Rastreador de vídeos</h3>
+            <p className="small muted mt8">Busca en YouTube y en las webs de subastas de la pestaña Fuentes, y la IA criba cada vídeo: si sirve, disciplina, etapa (potro, yearling, breeze, primera monta), subasta, lote y caballo. Tú aceptas los buenos y se descargan al archivo para analizarlos.</p>
+            {s && <p className="small mt8">{s.crawler_enabled ? `Automático cada ${s.crawler_every_hours} h` : 'Automático desactivado'} · descarga automática {s.crawler_auto_download ? `sí (máx. ${s.crawler_max_auto} por pasada)` : 'no'} · relevante desde {s.crawler_min_relevance} · {(s.crawler_queries || []).length} búsquedas</p>}
+            {last && <p className="small muted mt8">Última pasada: {new Date(last.startedAt).toLocaleString('es-ES')} · {last.finishedAt ? `${last.found} encontrados, ${last.added} nuevos, ${last.triaged} cribados, ${last.downloaded} descargados` : 'en marcha…'}{last.error ? ` · error: ${last.error}` : ''}</p>}
+          </div>
+          {isAdmin && (
+            <div className="row" style={{ gap: 8 }}>
+              <button className="btn btn-line btn-sm" onClick={() => (cfg ? setCfg(null) : startEdit())}>{cfg ? 'Cerrar ajustes' : 'Ajustes'}</button>
+              <button className="btn btn-gold btn-sm" disabled={runs.data?.running} onClick={runNow}>{runs.data?.running ? 'Buscando…' : 'Buscar ahora'}</button>
+            </div>
+          )}
+        </div>
+        {cfg && (
+          <div className="form mt16">
+            <div className="grid g3" style={{ gap: 12 }}>
+              <label className="row small" style={{ gap: 8 }}><input type="checkbox" checked={cfg.crawler_enabled} onChange={(e) => setCfg({ ...cfg, crawler_enabled: e.target.checked })} /> Búsqueda automática</label>
+              <div className="field"><label>Cada cuántas horas</label><input className="input" inputMode="numeric" value={cfg.crawler_every_hours} onChange={(e) => setCfg({ ...cfg, crawler_every_hours: e.target.value })} /></div>
+              <div className="field"><label>Relevante desde (0–100)</label><input className="input" inputMode="numeric" value={cfg.crawler_min_relevance} onChange={(e) => setCfg({ ...cfg, crawler_min_relevance: e.target.value })} /></div>
+              <label className="row small" style={{ gap: 8 }}><input type="checkbox" checked={cfg.crawler_auto_download} onChange={(e) => setCfg({ ...cfg, crawler_auto_download: e.target.checked })} /> Descargar solos los más relevantes</label>
+              <div className="field"><label>Máximo de descargas por pasada</label><input className="input" inputMode="numeric" value={cfg.crawler_max_auto} onChange={(e) => setCfg({ ...cfg, crawler_max_auto: e.target.value })} /></div>
+            </div>
+            <div className="field"><label>Búsquedas en YouTube (una por línea: DISCIPLINA | búsqueda)</label><textarea className="textarea" rows={10} value={cfg.queriesText} onChange={(e) => setCfg({ ...cfg, queriesText: e.target.value })} /></div>
+            <p className="small muted">Las webs de subastas que recorre son las de la pestaña Fuentes (las que no estén descartadas). Cada pasada cuesta poco en IA: la criba se hace por el texto, no viendo el vídeo.</p>
+            <div><button className="btn btn-ink btn-sm" onClick={save}>Guardar ajustes</button></div>
+          </div>
+        )}
+      </div>
+      <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+        {Object.entries(CAND_STATUS).map(([k, l]) => <button key={k} className={`btn btn-sm ${status === k ? 'btn-ink' : 'btn-line'}`} onClick={() => setStatus(k)}>{l}{cands.data?.counts?.[k] ? ` (${cands.data.counts[k]})` : ''}</button>)}
+        <select className="select" value={disc} onChange={(e) => setDisc(e.target.value)}><option value="">Todas las disciplinas</option>{cat?.disciplines.map((d) => <option key={d.key} value={d.key}>{d.name}</option>)}</select>
+        <input className="input" style={{ flex: 1, minWidth: 200 }} placeholder="Buscar título, canal, caballo o subasta…" value={q} onChange={(e) => setQ(e.target.value)} />
+      </div>
+      {cands.loading && !cands.data ? <p className="muted">Cargando…</p> : !cands.data?.items?.length ? <div className="empty">No hay vídeos en esta lista. Pulsa «Buscar ahora».</div> : (
+        <div className="table-scroll">
+          <table className="table">
+            <thead><tr><th>Vídeo</th><th>Disciplina / etapa</th><th>Subasta · lote · caballo</th><th className="num">Relevancia</th><th /></tr></thead>
+            <tbody>{cands.data.items.map((c) => (
+              <tr key={c.id}>
+                <td className="small" style={{ maxWidth: 380 }}><a className="link" href={c.url} target="_blank" rel="noreferrer">{c.title || c.url}</a><div className="muted">{c.platform}{c.channel ? ` · ${c.channel}` : ''}{c.durationS ? ` · ${Math.round(c.durationS / 60 * 10) / 10} min` : ''}{c.sourceKey ? ` · ${c.sourceKey}` : ''}{c.query ? ` · «${c.query}»` : ''}</div>{c.triage?.reason && <div className="muted">IA: {c.triage.reason}</div>}{c.error && <div className="chk DISTINTO">{c.error}</div>}</td>
+                <td className="small">{c.discipline ? disciplineName(cat, c.discipline) : '—'}<div className="muted">{STAGE_TXT[c.stage] || ''}</div></td>
+                <td className="small">{[c.saleName, c.lot && `lote ${c.lot}`, c.horseName].filter(Boolean).join(' · ') || '—'}{c.saleLotId && <div className="muted">archivado como lote</div>}{c.horseId && <div><LinkButton className="link small" onClick={() => openHorse(c.horseId)}>ver caballo</LinkButton></div>}</td>
+                <td className="num">{c.relevance ?? '—'}</td>
+                <td>{isAdmin && !['DESCARGADO'].includes(c.status) && (
+                  <div className="stack" style={{ gap: 6 }}>
+                    <button className="btn btn-gold btn-sm" disabled={busy === c.id} onClick={() => accept(c, 'lot')}>{busy === c.id ? 'Descargando…' : 'Archivar como lote'}</button>
+                    <button className="btn btn-line btn-sm" disabled={busy === c.id} onClick={() => accept(c, 'horse')}>Añadir a un caballo</button>
+                    {c.status !== 'DESCARTADO' ? <button className="btn btn-line btn-sm" onClick={() => mark(c, 'DESCARTADO')}>Descartar</button> : <button className="btn btn-line btn-sm" onClick={() => mark(c, 'NUEVO')}>Recuperar</button>}
+                  </div>
+                )}</td>
+              </tr>
+            ))}</tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  )
+}

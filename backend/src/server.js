@@ -49,5 +49,18 @@ app.use((err, req, res, next) => {
 
 const PORT = process.env.PORT || 3001;
 require('./lib/bootstrap')()
-  .then(() => app.listen(PORT, () => console.log(`TopHorses API escuchando en puerto ${PORT}`)))
+  .then(() => {
+    app.listen(PORT, () => console.log(`TopHorses API escuchando en puerto ${PORT}`))
+    // Rastreador programado: cada hora mira si toca otra pasada (si está activado en el panel)
+    const data = require('./routes/data')
+    const db = require('./lib/db')
+    setInterval(async () => {
+      try {
+        const st = await data.crawlerSettings()
+        if (!st.crawler_enabled) return
+        const last = await db.one('SELECT started_at FROM crawler_runs ORDER BY started_at DESC LIMIT 1')
+        if (!last || Date.now() - new Date(last.startedAt).getTime() > st.crawler_every_hours * 3600e3) await data.startCrawl('PROGRAMADO')
+      } catch (e) { console.error('programador del rastreador', e.message) }
+    }, 60 * 60 * 1000)
+  })
   .catch((e) => { console.error('Error al arrancar:', e); process.exit(1); });
